@@ -163,6 +163,47 @@ def ym_key(yearmonth):
     return yearmonth[:4] + "-" + yearmonth[4:]
 
 
+def to_path(url_or_path):
+    """URL/パスを正規化（クエリ除去・先頭スラッシュ・末尾スラッシュなしに統一）"""
+    s = url_or_path
+    if s.startswith("http"):
+        s = urllib.parse.urlparse(s).path or "/"
+    if "?" in s:
+        s = s.split("?")[0]
+    if not s.startswith("/"):
+        s = "/" + s
+    if len(s) > 1 and s.endswith("/"):
+        s = s[:-1]
+    return s
+
+
+# サービスページの一覧（サイトマップシートより。/service/{key}/ 配下に document/ と document/thanks/ を持つ）
+SERVICES = {
+    "rakuten": "楽天",
+    "amazon": "Amazon",
+    "yahoo": "Yahoo!",
+    "qoo10": "Qoo10",
+    "tiktok": "TikTok Shop",
+    "ec-site": "ECサイト構築",
+    "lp": "LP制作",
+    "advertising": "広告運用",
+}
+
+
+def svc_stage(path):
+    """/service/配下のパスを（サービスキー, 段階）に分類。対象外は (None, None)"""
+    parts = path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] == "service" and parts[1] in SERVICES:
+        rest = parts[2:]
+        if not rest:
+            return parts[1], "top"
+        if rest == ["document"]:
+            return parts[1], "document"
+        if rest == ["document", "thanks"]:
+            return parts[1], "thanks"
+    return None, None
+
+
 # ---------------------------------------------------------------- GSC
 class GSC:
     def __init__(self, cred):
@@ -309,27 +350,44 @@ def main():
         col_to_doc = {ym_key(d[0]): int(mt[0]) for d, mt in ga4.rows(
             range_start, range_end, ["yearMonth"], ["screenPageViews"],
             f_and(f_contains("pageReferrer", "/column/"), f_contains("pagePath", "/document/")))}
-        doc = {}
-        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions", CV],
-                              f_contains("pagePath", "/document/")):
-            doc[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1]}
+        # 資料DLページ（/document/）のセッションと、DL完了（URLに complete/ を含むサンクスページ）のセッション
+        doc_sessions = {ym_key(d[0]): int(mt[0]) for d, mt in ga4.rows(
+            range_start, range_end, ["yearMonth"], ["sessions"],
+            f_contains("pagePath", "/document/"))}
+        complete_sessions = {ym_key(d[0]): int(mt[0]) for d, mt in ga4.rows(
+            range_start, range_end, ["yearMonth"], ["sessions"],
+            f_contains("pagePath", "complete/"))}
 
         funnel = {}
         for ym in months:
             cp = col_pv.get(ym, 0)
             cd = col_to_doc.get(ym, 0)
-            dv = doc.get(ym, {"sessions": 0, "cv": 0})
+            ds = doc_sessions.get(ym, 0)
+            cs = complete_sessions.get(ym, 0)
             funnel[ym] = {
                 "col_pv": cp,
                 "col_to_doc_pv": cd,
                 "col_to_doc_rate": (cd / cp * 100.0) if cp else None,
-                "doc_sessions": dv["sessions"],
-                "doc_cv": dv["cv"],
-                "doc_cv_rate": (dv["cv"] / dv["sessions"] * 100.0) if dv["sessions"] else None,
+                "doc_sessions": ds,
+                "complete_sessions": cs,
+                "complete_rate": (cs / ds * 100.0) if ds else None,
             }
+
+        # サービス別ファネル: /service/X/ → /service/X/document/ → /service/X/document/thanks/
+        services = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
+                              f_contains("pagePath", "/service/")):
+            svc, stage = svc_stage(to_path(d[1]))
+            if not svc:
+                continue
+            s = services.setdefault(ym_key(d[0]), {}).setdefault(
+                svc, {"top": 0, "document": 0, "thanks": 0})
+            s[stage] += int(mt[0])
 
         out["ga4"] = {"cv_metric": CV, "site": site, "channels": channels, "seo": seo}
         out["funnel"] = funnel
+        out["services"] = services
+        out["service_labels"] = SERVICES
     except Exception as e:
         errors.append("GA4: %s" % e)
         log("GA4 取得エラー: %s" % e)
@@ -393,16 +451,22 @@ def main():
             month_end = (dt.date(yy + (1 if mm == 12 else 0), 1 if mm == 12 else mm + 1, 1)
                          - dt.timedelta(days=1))
             want_dates.append(min(month_end, yesterday).isoformat())
+        # 取得失敗しても他の日付・前回までの履歴は活かす（Ahrefs側の一時エラー対策）
+        fetch_errors = 0
         for d in want_dates:
-            if d not in history:
-                history[d] = fetch_ahrefs_snapshot(token, d)
-                log("Ahrefs スナップショット取得: %s" % d)
-        # 当月分は毎回更新（昨日時点に上書き）
-        history[want_dates[-1]] = fetch_ahrefs_snapshot(token, want_dates[-1])
+            if d not in history or d == want_dates[-1]:  # 当月分は毎回更新
+                try:
+                    history[d] = fetch_ahrefs_snapshot(token, d)
+                    log("Ahrefs スナップショット取得: %s" % d)
+                except Exception as e:
+                    fetch_errors += 1
+                    log("Ahrefs %s の取得に失敗（履歴があればそれを使用）: %s" % (d, e))
 
         with open(AHREFS_HISTORY, "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=1, sort_keys=True)
         out["ahrefs"] = {d: history[d] for d in want_dates if d in history}
+        if fetch_errors and not out["ahrefs"]:
+            raise RuntimeError("Ahrefsの取得にすべて失敗しました")
     except Exception as e:
         errors.append("Ahrefs: %s" % e)
         log("Ahrefs 取得エラー: %s" % e)

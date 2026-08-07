@@ -44,11 +44,16 @@ header .sub{color:var(--muted);font-size:12px;}
 header .spacer{flex:1}
 #themeBtn{border:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);
   border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit;}
-nav{display:flex;gap:4px;padding:10px 24px 0;flex-wrap:wrap;border-bottom:1px solid var(--grid);}
-nav button{border:0;background:none;color:var(--text-secondary);font-family:inherit;font-size:13px;
+.bar{display:flex;gap:4px;padding:10px 24px 0;flex-wrap:wrap;border-bottom:1px solid var(--grid);align-items:center;}
+.bar nav{display:flex;gap:4px;flex-wrap:wrap;}
+.bar nav button{border:0;background:none;color:var(--text-secondary);font-family:inherit;font-size:13px;
   padding:8px 14px;cursor:pointer;border-bottom:2px solid transparent;}
-nav button.on{color:var(--text-primary);font-weight:700;border-bottom-color:var(--accent);}
-main{padding:18px 24px 40px;max-width:1200px;margin:0 auto;}
+.bar nav button.on{color:var(--text-primary);font-weight:700;border-bottom-color:var(--accent);}
+.bar .sp{flex:1}
+.period{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-secondary);padding-bottom:8px;}
+.period select{font-family:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);
+  border-radius:6px;background:var(--surface-1);color:var(--text-primary);}
+main{padding:18px 24px 40px;max-width:1080px;margin:0 auto;}
 .tab{display:none}
 .tab.on{display:block}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px;}
@@ -57,8 +62,7 @@ main{padding:18px 24px 40px;max-width:1200px;margin:0 auto;}
 .tile .v{font-size:26px;font-weight:700;margin:2px 0 0;}
 .tile .d{font-size:12px;}
 .tile .d.up{color:var(--up)} .tile .d.down{color:var(--down)} .tile .d.flat{color:var(--muted)}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;}
-.card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:14px 16px 10px;margin-bottom:14px;min-width:0;}
+.card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:14px 18px 10px;margin-bottom:16px;min-width:0;}
 .card h3{font-size:13px;margin:0 0 2px;}
 .card .note{font-size:11px;color:var(--muted);margin:0 0 8px;}
 .card .head{display:flex;align-items:baseline;gap:8px;}
@@ -75,14 +79,15 @@ svg{display:block}
 .tip .r{display:flex;align-items:center;gap:6px;}
 .tip .r b{margin-left:auto;font-variant-numeric:tabular-nums;}
 table.dt{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0 8px;}
-table.dt th,table.dt td{border-bottom:1px solid var(--grid);padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;}
+table.dt th,table.dt td{border-bottom:1px solid var(--grid);padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;}
 table.dt th:first-child,table.dt td:first-child{text-align:left;}
 table.dt th{color:var(--text-secondary);font-weight:600;}
+table.dt tr.total td{font-weight:700;border-top:2px solid var(--baseline);}
 .msg{background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px;margin-bottom:14px;}
 .defs h3{font-size:14px;margin:18px 0 4px;}
 .defs p, .defs li{font-size:13px;color:var(--text-secondary);}
 .err{border-left:3px solid var(--down);padding-left:10px;}
-@media (max-width:600px){ main,header,nav{padding-left:12px;padding-right:12px;} }
+@media (max-width:600px){ main,header,.bar{padding-left:12px;padding-right:12px;} }
 </style>
 </head>
 <body>
@@ -92,14 +97,22 @@ table.dt th{color:var(--text-secondary);font-weight:600;}
   <span class="spacer"></span>
   <button id="themeBtn" type="button">表示切替（明/暗）</button>
 </header>
-<nav id="nav"></nav>
+<div class="bar">
+  <nav id="nav"></nav>
+  <span class="sp"></span>
+  <div class="period">
+    <label for="selS">期間</label>
+    <select id="selS"></select>
+    <span>〜</span>
+    <select id="selE"></select>
+  </div>
+</div>
 <main id="main"></main>
 
 <script>
 const DATA = /*DATA@*/null/*@DATA*/;
 
 // ---------------------------------------------------------------- helpers
-const CS = getComputedStyle(document.documentElement);
 const cvar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const SERIES = i => cvar('--series-' + (i + 1));
 const fmtN = v => v == null ? '-' : Math.round(v).toLocaleString('ja-JP');
@@ -126,41 +139,42 @@ function sv(tag, attrs, ...kids){
   return e;
 }
 
-// 直近13ヶ月のうち当月（月途中）のインデックス
-const MONTHS = DATA ? DATA.months : [];
-const CUR = MONTHS.length - 1;
+// ---------------------------------------------------------------- 期間の状態
+const FULL = DATA ? DATA.months : [];
+let VS = 0, VE = FULL.length - 1;          // 表示範囲（開始・終了のインデックス）
+const VM = () => FULL.slice(VS, VE + 1);   // 表示中の月リスト
+const lastIsCurrent = () => FULL[VE] === DATA.current_month;
 
 function delta(cur, prev){
   if (cur == null || prev == null || prev === 0) return null;
   return (cur - prev) / prev * 100;
 }
-
-// 当月は月途中のため、件数系の前月比は日割り（1日あたり平均）で比較する
-// （期間の長さが違うもの同士をそのまま比べると誤認を招くため）
 function daysInMonth(ym){ return new Date(+ym.slice(0,4), +ym.slice(5), 0).getDate(); }
-function elapsedDays(){
-  const end = DATA.range.end; // データの最終日（昨日）
-  return end.slice(0,7) === DATA.current_month ? +end.slice(8) : daysInMonth(DATA.current_month);
+function elapsedDays(ym){
+  // 当月（データ最終日の月）だけは経過日数、それ以外は月の日数
+  const end = DATA.range.end;
+  return end.slice(0,7) === ym ? +end.slice(8) : daysInMonth(ym);
 }
 
 // ---------------------------------------------------------------- tiles
-function tile(label, value, prev, opts){
+// 表示期間の終了月と、その前月を比較する。件数は日割り（期間の長さ違いをそのまま比べない）
+function tile(label, getter, opts){
   opts = opts || {};
+  const endYm = FULL[VE], prevYm = FULL[VE - 1];
+  const value = getter(endYm), prev = prevYm ? getter(prevYm) : null;
   const t = el('div', {class:'tile'});
-  t.append(el('div', {class:'k'}, label));
+  t.append(el('div', {class:'k'}, label + '（' + mLabel(endYm) + (lastIsCurrent() ? '・月途中' : '') + '）'));
   t.append(el('div', {class:'v'}, opts.fmt ? opts.fmt(value) : fmtN(value)));
   let d, body, note = '';
   if (opts.pt){
-    // 率（%）はそのまま差を取る
     d = (value != null && prev != null) ? value - prev : null;
     if (d != null) body = (d >= 0 ? '+' : '') + d.toFixed(1) + 'pt';
   } else {
-    // 件数は日割りで比較
-    const curDaily = value != null ? value / elapsedDays() : null;
-    const prevDaily = prev != null ? prev / daysInMonth(MONTHS[CUR - 1] || DATA.current_month) : null;
+    const curDaily = value != null ? value / elapsedDays(endYm) : null;
+    const prevDaily = (prev != null && prevYm) ? prev / daysInMonth(prevYm) : null;
     d = delta(curDaily, prevDaily);
     if (d != null) body = (d >= 0 ? '+' : '') + d.toFixed(1) + '%';
-    note = '（日割り）';
+    if (lastIsCurrent()) note = '（日割り）';
   }
   if (d != null){
     const good = opts.lowerBetter ? d < 0 : d > 0;
@@ -173,10 +187,11 @@ function tile(label, value, prev, opts){
   return t;
 }
 
-// ---------------------------------------------------------------- line chart
-// series: [{name, values:[...], color}] 単位が同じものだけを1つのグラフに載せる（軸は1本）
+// ---------------------------------------------------------------- line chart（横長1カラム）
 function lineChart(parent, title, note, series, opts){
   opts = opts || {};
+  const M = VM();
+  const curIdx = lastIsCurrent() ? M.length - 1 : -1;  // 破線にする月（当月）
   const card = el('div', {class:'card'});
   const head = el('div', {class:'head'});
   head.append(el('h3', {}, title));
@@ -197,37 +212,33 @@ function lineChart(parent, title, note, series, opts){
     card.append(lg);
   }
 
-  const W = 640, H = 220, padL = 46, padR = 84, padT = 12, padB = 26;
+  const W = 980, H = 260, padL = 56, padR = 120, padT = 14, padB = 28;
   const wrap = el('div', {class:'chartWrap'});
-  const svg = sv('svg', {viewBox:`0 0 ${W} ${H}`, width:'100%', height:'auto', role:'img',
-    'aria-label': title});
+  const svg = sv('svg', {viewBox:`0 0 ${W} ${H}`, width:'100%', height:'auto', role:'img', 'aria-label': title});
   const all = series.flatMap(s => s.values).filter(v => v != null);
   let max = Math.max(...all, 0), min = opts.zeroBase === false ? Math.min(...all) : 0;
-  if (opts.reversed){ const t = max; max = Math.max(...all) * 1.08; min = Math.min(...all) * 0.9; }
+  if (opts.reversed){ max = Math.max(...all) * 1.08; min = Math.min(...all) * 0.9; }
   if (max === min) max = min + 1;
   max = max * 1.06;
-  const X = i => padL + (W - padL - padR) * (MONTHS.length === 1 ? 0.5 : i / (MONTHS.length - 1));
+  const X = i => padL + (W - padL - padR) * (M.length === 1 ? 0.5 : i / (M.length - 1));
   const Y = v => {
     let r = (v - min) / (max - min);
     if (opts.reversed) r = 1 - r;
     return H - padB - (H - padT - padB) * r;
   };
-  // grid: 3本の水平線
-  for (let g = 1; g <= 3; g++){
-    const gv = min + (max - min) * g / 3;
+  for (let g = 1; g <= 4; g++){
+    const gv = min + (max - min) * g / 4;
     svg.append(sv('line', {x1:padL, x2:W-padR, y1:Y(gv), y2:Y(gv), stroke:cvar('--grid'), 'stroke-width':1}));
     svg.append(sv('text', {x:padL-6, y:Y(gv)+4, 'text-anchor':'end', 'font-size':10,
       fill:cvar('--muted'), style:'font-variant-numeric:tabular-nums'},
       opts.fmt ? opts.fmt(gv) : fmtN(gv)));
   }
-  // baseline
   svg.append(sv('line', {x1:padL, x2:W-padR, y1:H-padB, y2:H-padB, stroke:cvar('--baseline'), 'stroke-width':1}));
-  // x labels（3ヶ月おき＋最終月）
-  MONTHS.forEach((m, i) => {
-    if (i % 3 === 0 || i === CUR)
+  const step = M.length > 8 ? 2 : 1;
+  M.forEach((m, i) => {
+    if (i % step === 0 || i === M.length - 1)
       svg.append(sv('text', {x:X(i), y:H-8, 'text-anchor':'middle', 'font-size':10, fill:cvar('--muted')}, mShort(m)));
   });
-  // series lines（当月区間は破線＝月途中）
   const endLabels = [];
   series.forEach((s, si) => {
     const color = s.color || SERIES(si);
@@ -236,34 +247,32 @@ function lineChart(parent, title, note, series, opts){
     for (let i = 0; i < pts.length; i++){
       if (!pts[i]) continue;
       const cmd = (p, acc) => acc + (acc ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
-      if (i < CUR) solid = cmd(pts[i], solid);
-      if (i === CUR - 1 || i === CUR) dash = cmd(pts[i], dash);
+      if (curIdx < 0 || i < curIdx) solid = cmd(pts[i], solid);
+      if (curIdx >= 0 && (i === curIdx - 1 || i === curIdx)) dash = cmd(pts[i], dash);
     }
     if (solid) svg.append(sv('path', {d:solid, fill:'none', stroke:color, 'stroke-width':2, 'stroke-linejoin':'round'}));
     if (dash) svg.append(sv('path', {d:dash, fill:'none', stroke:color, 'stroke-width':2, 'stroke-dasharray':'4 4'}));
-    const last = pts[CUR] || pts.filter(Boolean).slice(-1)[0];
+    const lastI = pts.length - 1;
+    const last = pts[lastI] || pts.filter(Boolean).slice(-1)[0];
     if (last){
       svg.append(sv('circle', {cx:last[0], cy:last[1], r:3.5, fill:color,
         stroke:cvar('--surface-1'), 'stroke-width':2}));
-      // 系列が3本以上のときは名前を省き値だけ（名前は凡例にある。右端の重なり防止）
-      const txt = (series.length > 1 && series.length <= 2 ? s.name + ' ' : '') +
-        (opts.fmt ? opts.fmt(s.values[CUR]) : fmtN(s.values[CUR]));
+      const txt = (series.length === 2 ? s.name + ' ' : '') +
+        (opts.fmt ? opts.fmt(s.values[lastI]) : fmtN(s.values[lastI]));
       endLabels.push({x: last[0] + 8, y: last[1] + 4, txt});
     }
   });
-  // 右端ラベルの重なり回避（近いものを12pxずつ押し広げる）
   endLabels.sort((a, b) => a.y - b.y);
   for (let i = 1; i < endLabels.length; i++){
     if (endLabels[i].y - endLabels[i-1].y < 12) endLabels[i].y = endLabels[i-1].y + 12;
   }
-  const overflow = endLabels.length && endLabels[endLabels.length-1].y > H - padB + 10;
-  if (overflow){
+  if (endLabels.length && endLabels[endLabels.length-1].y > H - padB + 10){
     const shift = endLabels[endLabels.length-1].y - (H - padB + 10);
     endLabels.forEach(l => l.y -= shift);
   }
   endLabels.forEach(l => svg.append(
     sv('text', {x:l.x, y:l.y, 'font-size':10, fill:cvar('--text-secondary')}, l.txt)));
-  // hover crosshair + tooltip
+
   const cross = sv('line', {y1:padT, y2:H-padB, stroke:cvar('--baseline'), 'stroke-width':1, 'stroke-dasharray':'2 3', visibility:'hidden'});
   svg.append(cross);
   const tip = el('div', {class:'tip'});
@@ -272,11 +281,11 @@ function lineChart(parent, title, note, series, opts){
   hit.addEventListener('mousemove', ev => {
     const r = svg.getBoundingClientRect();
     const sx = (ev.clientX - r.left) / r.width * W;
-    let i = Math.round((sx - padL) / ((W - padL - padR) / (MONTHS.length - 1)));
-    i = Math.max(0, Math.min(MONTHS.length - 1, i));
+    let i = Math.round((sx - padL) / ((W - padL - padR) / Math.max(M.length - 1, 1)));
+    i = Math.max(0, Math.min(M.length - 1, i));
     cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i));
     cross.setAttribute('visibility', 'visible');
-    tip.replaceChildren(el('div', {class:'t'}, mLabel(MONTHS[i]) + (i === CUR ? '（月途中）' : '')));
+    tip.replaceChildren(el('div', {class:'t'}, mLabel(M[i]) + (i === curIdx ? '（月途中）' : '')));
     series.forEach((s, si) => {
       const row = el('div', {class:'r'});
       row.append(el('span', {class:'sw', style:'width:8px;height:8px;border-radius:2px;background:' + (s.color || SERIES(si))}));
@@ -286,21 +295,20 @@ function lineChart(parent, title, note, series, opts){
     });
     tip.style.display = 'block';
     const px = X(i) / W * r.width;
-    tip.style.left = Math.min(px + 12, r.width - 150) + 'px';
-    tip.style.top = '30px';
+    tip.style.left = Math.min(px + 12, r.width - 160) + 'px';
+    tip.style.top = '26px';
   });
   hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); });
   wrap.append(svg); wrap.append(tip);
   card.append(wrap);
 
-  // 表ビュー
   const tbl = el('table', {class:'dt', style:'display:none'});
   const hr = el('tr', {}); hr.append(el('th', {}, '月'));
   series.forEach(s => hr.append(el('th', {}, s.name)));
   tbl.append(hr);
-  MONTHS.forEach((m, i) => {
+  M.forEach((m, i) => {
     const tr = el('tr', {});
-    tr.append(el('td', {}, mLabel(m) + (i === CUR ? '（途中）' : '')));
+    tr.append(el('td', {}, mLabel(m) + (i === curIdx ? '（途中）' : '')));
     series.forEach(s => tr.append(el('td', {}, opts.fmt ? opts.fmt(s.values[i]) : fmtN(s.values[i]))));
     tbl.append(tr);
   });
@@ -314,28 +322,31 @@ function lineChart(parent, title, note, series, opts){
   parent.append(card);
 }
 
-// ---------------------------------------------------------------- data prep
-function series(getter){ return MONTHS.map(m => { try { const v = getter(m); return v == null ? null : v; } catch(e){ return null; } }); }
+function series(getter){ return VM().map(m => { try { const v = getter(m); return v == null ? null : v; } catch(e){ return null; } }); }
 
+// ---------------------------------------------------------------- build
+let activeTab = 0;
 function build(){
-  if (!DATA){ document.getElementById('main').append(el('div', {class:'msg'}, 'データ未生成です。scripts/collect_all.py を実行してください。')); return; }
+  const main = document.getElementById('main');
+  const nav = document.getElementById('nav');
+  main.replaceChildren(); nav.replaceChildren();
+  if (!DATA){ main.append(el('div', {class:'msg'}, 'データ未生成です。scripts/collect_all.py を実行してください。')); return; }
   document.getElementById('genAt').textContent = '最終更新: ' + DATA.generated_at.replace('T', ' ').slice(0, 16) +
     '（当月は月途中の数値・破線で表示）';
 
   const ga = DATA.ga4 || {};
-  const site = m => (ga.site || {})[m];
-  const seo = m => (ga.seo || {})[m];
-  const fn = m => (DATA.funnel || {})[m];
-  const gsc = m => (DATA.gsc || {})[m];
-  const cur = MONTHS[CUR], prev = MONTHS[CUR - 1];
+  const site = m => (ga.site || {})[m] || {};
+  const seo = m => (ga.seo || {})[m] || {};
+  const fn = m => (DATA.funnel || {})[m] || {};
+  const gsc = m => (DATA.gsc || {})[m] || {};
 
   const tabs = [];
-  const nav = document.getElementById('nav');
-  const main = document.getElementById('main');
   function addTab(name){
     const pane = el('section', {class:'tab'});
+    const idx = tabs.length;
     const b = el('button', {type:'button'}, name);
     b.addEventListener('click', () => {
+      activeTab = idx;
       nav.querySelectorAll('button').forEach(x => x.classList.remove('on'));
       main.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
       b.classList.add('on'); pane.classList.add('on');
@@ -350,147 +361,181 @@ function build(){
     t1.append(el('div', {class:'msg err'}, '一部データの取得に失敗しています: ' + DATA.errors.join(' / ')));
   }
   const tl = el('div', {class:'tiles'});
-  const g = k => (site(cur)||{})[k], gp = k => (site(prev)||{})[k];
-  tl.append(tile('セッション（当月）', g('sessions'), gp('sessions')));
-  tl.append(tile('CV（当月）', g('cv'), gp('cv')));
-  tl.append(tile('SEO記事セッション', (seo(cur)||{}).sessions, (seo(prev)||{}).sessions));
-  tl.append(tile('SEO記事CV', (seo(cur)||{}).cv, (seo(prev)||{}).cv));
-  tl.append(tile('記事→資料DLページ遷移率', (fn(cur)||{}).col_to_doc_rate, (fn(prev)||{}).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
-  tl.append(tile('資料DLページ→CV率', (fn(cur)||{}).doc_cv_rate, (fn(prev)||{}).doc_cv_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  tl.append(tile('セッション', m => site(m).sessions));
+  tl.append(tile('CV', m => site(m).cv));
+  tl.append(tile('SEO記事セッション', m => seo(m).sessions));
+  tl.append(tile('SEO記事CV', m => seo(m).cv));
+  tl.append(tile('記事→資料DLページ遷移率', m => fn(m).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  tl.append(tile('資料DL完了率', m => fn(m).complete_rate, {fmt:v=>fmtP(v,1), pt:true}));
   t1.append(tl);
-  const g2 = el('div', {class:'grid2'});
-  lineChart(g2, 'セッション推移', 'GA4・国=日本のみ', [
-    {name:'サイト全体', values: series(m => (site(m)||{}).sessions)},
-    {name:'SEO記事（オーガニック）', values: series(m => (seo(m)||{}).sessions)},
+  lineChart(t1, 'セッション推移', 'GA4・国=日本のみ', [
+    {name:'サイト全体', values: series(m => site(m).sessions)},
+    {name:'SEO記事（オーガニック）', values: series(m => seo(m).sessions)},
   ]);
-  lineChart(g2, 'CV推移', 'GA4キーイベント（' + (ga.cv_metric || 'keyEvents') + '）', [
-    {name:'サイト全体', values: series(m => (site(m)||{}).cv)},
-    {name:'SEO記事経由', values: series(m => (seo(m)||{}).cv)},
+  lineChart(t1, 'CV推移', 'GA4キーイベント（' + (ga.cv_metric || 'keyEvents') + '）', [
+    {name:'サイト全体', values: series(m => site(m).cv)},
+    {name:'SEO記事経由', values: series(m => seo(m).cv)},
   ]);
-  lineChart(g2, 'GSC クリック数', '検索結果からの流入クリック', [
-    {name:'クリック', values: series(m => (gsc(m)||{}).clicks)},
-    {name:'うち指名検索', values: series(m => (gsc(m)||{}).brand_clicks)},
+  lineChart(t1, 'GSC クリック数', '検索結果からの流入クリック', [
+    {name:'クリック', values: series(m => gsc(m).clicks)},
+    {name:'うち指名検索', values: series(m => gsc(m).brand_clicks)},
   ]);
-  lineChart(g2, '新規ユーザー数', 'GA4・国=日本のみ', [
-    {name:'新規ユーザー', values: series(m => (site(m)||{}).new_users)},
+  lineChart(t1, '新規ユーザー数', 'GA4・国=日本のみ', [
+    {name:'新規ユーザー', values: series(m => site(m).new_users)},
   ]);
-  t1.append(g2);
 
   // ============================ 遷移率ファネル
-  const t2 = addTab('遷移率（記事→資料→CV）');
+  const t2 = addTab('遷移率（記事→資料→DL完了）');
   t2.append(el('div', {class:'msg'},
     '記事→資料DLページの遷移率は「/column/から/document/へ移動したページビュー ÷ /column/のページビュー」。' +
-    'ブラウザ設定により移動元が取れない閲覧があるため実際より低めに出ます。月ごとの比較用の目安として見てください。' +
-    '資料DLページ→CV率は「/document/を見たセッションのうちCVした割合」の近似値です。'));
+    'ブラウザ設定により移動元が取れない閲覧があるため実際より低めに出ます。' +
+    '資料DL完了はサンクスページ（URLに complete/ を含む）到達セッションで数えた実測値です。'));
   const tl2 = el('div', {class:'tiles'});
-  tl2.append(tile('記事→資料DLページ遷移率', (fn(cur)||{}).col_to_doc_rate, (fn(prev)||{}).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
-  tl2.append(tile('資料DLページ→CV率', (fn(cur)||{}).doc_cv_rate, (fn(prev)||{}).doc_cv_rate, {fmt:v=>fmtP(v,2), pt:true}));
-  tl2.append(tile('資料DLページ閲覧セッション', (fn(cur)||{}).doc_sessions, (fn(prev)||{}).doc_sessions));
-  tl2.append(tile('記事ページビュー', (fn(cur)||{}).col_pv, (fn(prev)||{}).col_pv));
+  tl2.append(tile('記事→資料DLページ遷移率', m => fn(m).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  tl2.append(tile('資料DL完了率', m => fn(m).complete_rate, {fmt:v=>fmtP(v,1), pt:true}));
+  tl2.append(tile('資料DLページ閲覧セッション', m => fn(m).doc_sessions));
+  tl2.append(tile('資料DL完了セッション', m => fn(m).complete_sessions));
   t2.append(tl2);
-  const g3 = el('div', {class:'grid2'});
-  lineChart(g3, '遷移率の推移', '2つの率はどちらも%表示', [
-    {name:'記事→資料DL', values: series(m => (fn(m)||{}).col_to_doc_rate)},
-    {name:'資料DL→CV', values: series(m => (fn(m)||{}).doc_cv_rate)},
+  lineChart(t2, '遷移率の推移', '記事→資料DL率と、資料DLページ→DL完了率', [
+    {name:'記事→資料DL', values: series(m => fn(m).col_to_doc_rate)},
+    {name:'資料DL→完了', values: series(m => fn(m).complete_rate)},
   ], {fmt:v=>fmtP(v,2)});
-  lineChart(g3, '記事→資料DLページの遷移ページビュー', '', [
-    {name:'遷移PV', values: series(m => (fn(m)||{}).col_to_doc_pv)},
+  lineChart(t2, '資料DLページと完了のセッション推移', 'お役立ち資料（/document/ と complete/）', [
+    {name:'資料DLページ閲覧', values: series(m => fn(m).doc_sessions)},
+    {name:'DL完了', values: series(m => fn(m).complete_sessions)},
   ]);
-  t2.append(g3);
+
+  // ---- サービス別ファネル（表示期間の合計）
+  const svcCard = el('div', {class:'card'});
+  svcCard.append(el('h3', {}, 'サービスページ別ファネル（' + mLabel(FULL[VS]) + '〜' + mLabel(FULL[VE]) + 'の合計）'));
+  svcCard.append(el('p', {class:'note'},
+    '各サービスページ → 資料DLページ（/service/◯◯/document/） → DL完了（…/document/thanks/）のセッション数と遷移率'));
+  const labels = DATA.service_labels || {};
+  const agg = {};
+  VM().forEach(m => {
+    const sm = (DATA.services || {})[m] || {};
+    for (const k in sm){
+      const a = agg[k] = agg[k] || {top:0, document:0, thanks:0};
+      a.top += sm[k].top; a.document += sm[k].document; a.thanks += sm[k].thanks;
+    }
+  });
+  const keys = Object.keys(agg).sort((a,b) => agg[b].top - agg[a].top);
+  const stbl = el('table', {class:'dt'});
+  const sh = el('tr', {});
+  ['サービス','ページ閲覧','資料DLページ','DL完了','ページ→資料DL率','資料DL→完了率'].forEach(h => sh.append(el('th', {}, h)));
+  stbl.append(sh);
+  const tot = {top:0, document:0, thanks:0};
+  keys.forEach(k => {
+    const a = agg[k];
+    tot.top += a.top; tot.document += a.document; tot.thanks += a.thanks;
+    const tr = el('tr', {});
+    tr.append(el('td', {}, labels[k] || k));
+    tr.append(el('td', {}, fmtN(a.top)));
+    tr.append(el('td', {}, fmtN(a.document)));
+    tr.append(el('td', {}, fmtN(a.thanks)));
+    tr.append(el('td', {}, a.top ? fmtP(a.document / a.top * 100, 1) : '-'));
+    tr.append(el('td', {}, a.document ? fmtP(a.thanks / a.document * 100, 1) : '-'));
+    stbl.append(tr);
+  });
+  const trT = el('tr', {class:'total'});
+  trT.append(el('td', {}, '合計'));
+  trT.append(el('td', {}, fmtN(tot.top)));
+  trT.append(el('td', {}, fmtN(tot.document)));
+  trT.append(el('td', {}, fmtN(tot.thanks)));
+  trT.append(el('td', {}, tot.top ? fmtP(tot.document / tot.top * 100, 1) : '-'));
+  trT.append(el('td', {}, tot.document ? fmtP(tot.thanks / tot.document * 100, 1) : '-'));
+  stbl.append(trT);
+  svcCard.append(stbl);
+  t2.append(svcCard);
+  lineChart(t2, 'サービスページ計のファネル推移', '8サービス合計のセッション数', [
+    {name:'サービスページ閲覧', values: series(m => { const sm = (DATA.services||{})[m]||{}; let s=0; for(const k in sm) s+=sm[k].top; return s; })},
+    {name:'資料DLページ', values: series(m => { const sm = (DATA.services||{})[m]||{}; let s=0; for(const k in sm) s+=sm[k].document; return s; })},
+    {name:'DL完了', values: series(m => { const sm = (DATA.services||{})[m]||{}; let s=0; for(const k in sm) s+=sm[k].thanks; return s; })},
+  ]);
 
   // ============================ SEO・流入詳細
   const t3 = addTab('SEO・流入詳細');
-  const g4 = el('div', {class:'grid2'});
-  lineChart(g4, 'GSC 表示回数', '検索結果に表示された回数', [
-    {name:'表示回数', values: series(m => (gsc(m)||{}).impressions)},
+  lineChart(t3, 'GSC 表示回数', '検索結果に表示された回数', [
+    {name:'表示回数', values: series(m => gsc(m).impressions)},
   ]);
-  lineChart(g4, 'GSC 平均掲載順位', '上にいくほど良い（軸を反転表示）', [
-    {name:'平均順位', values: series(m => (gsc(m)||{}).position)},
+  lineChart(t3, 'GSC 平均掲載順位', '上にいくほど良い（軸を反転表示）', [
+    {name:'平均順位', values: series(m => gsc(m).position)},
   ], {reversed:true, fmt:v=>fmtF(v,1), zeroBase:false});
-  // チャネル別（上位4チャネル＋その他）
   const chTotals = {};
-  MONTHS.forEach(m => { const c = (ga.channels||{})[m] || {};
+  VM().forEach(m => { const c = (ga.channels||{})[m] || {};
     for (const k in c) chTotals[k] = (chTotals[k]||0) + c[k].sessions; });
   const top4 = Object.keys(chTotals).sort((a,b)=>chTotals[b]-chTotals[a]).slice(0,4);
   const chSeries = top4.map(k => ({name:k, values: series(m => ((ga.channels||{})[m]||{})[k] ? ((ga.channels||{})[m]||{})[k].sessions : 0)}));
   chSeries.push({name:'その他', values: series(m => {
     const c = (ga.channels||{})[m] || {}; let s = 0;
     for (const k in c) if (!top4.includes(k)) s += c[k].sessions; return s; })});
-  lineChart(g4, 'チャネル別セッション', '流入経路の内訳（上位4＋その他）', chSeries);
+  lineChart(t3, 'チャネル別セッション', '流入経路の内訳（上位4＋その他）', chSeries);
   const ah = DATA.ahrefs || {};
   const ahDates = Object.keys(ah).sort();
-  const ahByMonth = m => { const d = ahDates.filter(x => x.slice(0,7) === m).slice(-1)[0]; return d ? ah[d] : null; };
-  lineChart(g4, 'Ahrefs 検索順位キーワード数', '検索結果に載っているキーワードの数（月末時点）', [
-    {name:'KW総数', values: series(m => (ahByMonth(m)||{}).org_keywords)},
+  const ahByMonth = m => { const d = ahDates.filter(x => x.slice(0,7) === m).slice(-1)[0]; return d ? ah[d] : {}; };
+  lineChart(t3, 'Ahrefs 検索順位キーワード数', '検索結果に載っているキーワードの数（月末時点）', [
+    {name:'KW総数', values: series(m => ahByMonth(m).org_keywords)},
   ]);
-  lineChart(g4, 'Ahrefs 1〜3位キーワード数', '上位表示（1〜3位）できているキーワード数', [
-    {name:'1〜3位KW', values: series(m => (ahByMonth(m)||{}).org_keywords_1_3)},
+  lineChart(t3, 'Ahrefs 1〜3位キーワード数', '上位表示（1〜3位）できているキーワード数', [
+    {name:'1〜3位KW', values: series(m => ahByMonth(m).org_keywords_1_3)},
   ]);
-  lineChart(g4, 'Ahrefs ドメインレーティング', 'サイトの被リンク評価（0〜100）', [
-    {name:'DR', values: series(m => (ahByMonth(m)||{}).domain_rating)},
+  lineChart(t3, 'Ahrefs ドメインレーティング', 'サイトの被リンク評価（0〜100）', [
+    {name:'DR', values: series(m => ahByMonth(m).domain_rating)},
   ], {fmt:v=>fmtF(v,0), zeroBase:false});
-  t3.append(g4);
-
-  // ============================ HubSpot
-  const t4 = addTab('HubSpot（リード・商談）');
-  const hs = DATA.hubspot || {};
-  if (!hs.available){
-    t4.append(el('div', {class:'msg'}, 'HubSpotは未接続です。' + (hs.note || '')));
-  } else {
-    const hm = m => (hs.monthly||{})[m];
-    const tl4 = el('div', {class:'tiles'});
-    tl4.append(tile('新規リード（当月）', (hm(cur)||{}).contacts, (hm(prev)||{}).contacts));
-    tl4.append(tile('新規商談（当月）', (hm(cur)||{}).deals, (hm(prev)||{}).deals));
-    tl4.append(tile('成約（当月）', (hm(cur)||{}).won, (hm(prev)||{}).won));
-    t4.append(tl4);
-    const g5 = el('div', {class:'grid2'});
-    lineChart(g5, 'リード・商談・成約の推移', 'HubSpot（作成日・成約日ベース）', [
-      {name:'新規リード', values: series(m => (hm(m)||{}).contacts)},
-      {name:'新規商談', values: series(m => (hm(m)||{}).deals)},
-      {name:'成約', values: series(m => (hm(m)||{}).won)},
-    ]);
-    lineChart(g5, 'リード→商談化率', '新規商談 ÷ 新規リード（同月比の近似値）', [
-      {name:'商談化率', values: series(m => { const h = hm(m); return h && h.contacts ? h.deals / h.contacts * 100 : null; })},
-    ], {fmt:v=>fmtP(v,1)});
-    t4.append(g5);
-  }
 
   // ============================ 定義
   const t5 = addTab('定義・データソース');
   const d = el('div', {class:'defs'});
   d.innerHTML = `
   <h3>データソースと更新</h3>
-  <p>毎朝、GitHub Actions（自動実行の仕組み）がGA4・Search Console・Ahrefs・HubSpotのAPIからデータを取得して、このページを作り直しています。当月の数値は月途中のもので、グラフでは破線で表示しています。GSCは直近2日ほどのデータが未確定のため少なめに出ます。</p>
+  <p>毎朝、GitHub Actions（自動実行の仕組み）がGA4・Search Console・AhrefsのAPIからデータを取得して、このページを作り直しています。当月の数値は月途中のもので、グラフでは破線で表示しています。GSCは直近2日ほどのデータが未確定のため少なめに出ます。HubSpotの数値は現在このダッシュボードには含めていません。</p>
   <h3>指標の定義</h3>
   <ul>
     <li>セッション・CV・新規ユーザー: GA4。海外ボット除外のため国=日本のみで集計。CVはGA4のキーイベント合計</li>
     <li>SEO記事: 流入ページが /column/ 配下 かつ チャネルが Organic Search のセッション</li>
     <li>記事→資料DLページ遷移率: /column/から/document/へ移動したページビュー ÷ /column/のページビュー（移動元が取れない閲覧があるため低めに出る近似値）</li>
-    <li>資料DLページ→CV率: /document/ を見たセッションのCV率の近似値。資料DL完了がGA4のイベントとして識別できるようになったら、正確な定義に置き換え予定</li>
+    <li>資料DL完了: お役立ち資料のサンクスページ（URLに complete/ を含む）に到達したセッション数。資料DL完了率 = DL完了セッション ÷ /document/閲覧セッション</li>
+    <li>サービス別ファネル: /service/◯◯/（ページ閲覧）→ /service/◯◯/document/（資料DLページ）→ /service/◯◯/document/thanks/（DL完了）の各セッション数。対象は楽天・Amazon・Yahoo!・Qoo10・TikTok Shop・ECサイト構築・LP制作・広告運用の8サービス</li>
     <li>指名検索: Search Console で検索語に「ジャグー」または「jagoo」を含むクリック数</li>
     <li>Ahrefs: 月末時点のスナップショット。KW総数=検索結果に載っているキーワード数、DR=被リンク評価（0〜100）</li>
-    <li>HubSpot: 新規リード=当月作成のコンタクト数、新規商談=当月作成の取引数、成約=当月に成約した取引数</li>
   </ul>
-  <h3>見方のヒント</h3>
-  <ul>
-    <li>「セッションは伸びているのにCVが伸びない」月は、遷移率タブで記事→資料→CVのどこで落ちているかを確認</li>
-    <li>指名検索クリックは「会社名で調べてもらえた数」で、認知の変化を追う代わりの指標として使えます</li>
-  </ul>`;
+  <h3>期間フィルタ</h3>
+  <p>画面右上の「期間」で開始月・終了月を選ぶと、全タブのグラフ・表・上部の数値カードがその期間に切り替わります。数値カードは期間の終了月とその前月の比較です。</p>`;
   t5.append(d);
 
-  tabs[0][0].classList.add('on'); tabs[0][1].classList.add('on');
+  const i = Math.min(activeTab, tabs.length - 1);
+  tabs[i][0].classList.add('on'); tabs[i][1].classList.add('on');
 }
 
-// テーマ切替
+// ---------------------------------------------------------------- 期間セレクタ
+function initPeriod(){
+  const selS = document.getElementById('selS'), selE = document.getElementById('selE');
+  function fill(sel, val){
+    sel.replaceChildren();
+    FULL.forEach((m, i) => {
+      const o = el('option', {value:i}, mLabel(m));
+      if (i === val) o.selected = true;
+      sel.append(o);
+    });
+  }
+  fill(selS, VS); fill(selE, VE);
+  function onChange(){
+    VS = +selS.value; VE = +selE.value;
+    if (VS > VE){ [VS, VE] = [VE, VS]; fill(selS, VS); fill(selE, VE); }
+    build();
+  }
+  selS.addEventListener('change', onChange);
+  selE.addEventListener('change', onChange);
+}
+
 document.getElementById('themeBtn').addEventListener('click', () => {
   const r = document.documentElement;
   const curDark = r.getAttribute('data-theme') === 'dark' ||
     (!r.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
   r.setAttribute('data-theme', curDark ? 'light' : 'dark');
-  document.getElementById('main').replaceChildren();
-  document.getElementById('nav').replaceChildren();
   build();
 });
+if (DATA){ initPeriod(); }
 build();
 </script>
 </body>
