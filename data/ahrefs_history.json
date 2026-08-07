@@ -1,0 +1,80 @@
+{
+ "2025-08-31": {
+  "domain_rating": 25.0,
+  "org_keywords": 2329,
+  "org_keywords_1_3": 172,
+  "org_traffic": 6498
+ },
+ "2025-09-30": {
+  "domain_rating": 26.0,
+  "org_keywords": 1494,
+  "org_keywords_1_3": 228,
+  "org_traffic": 7498
+ },
+ "2025-10-31": {
+  "domain_rating": 27.0,
+  "org_keywords": 1223,
+  "org_keywords_1_3": 214,
+  "org_traffic": 8321
+ },
+ "2025-11-30": {
+  "domain_rating": 28.0,
+  "org_keywords": 1350,
+  "org_keywords_1_3": 305,
+  "org_traffic": 7425
+ },
+ "2025-12-31": {
+  "domain_rating": 29.0,
+  "org_keywords": 1388,
+  "org_keywords_1_3": 291,
+  "org_traffic": 6329
+ },
+ "2026-01-31": {
+  "domain_rating": 28.0,
+  "org_keywords": 1344,
+  "org_keywords_1_3": 304,
+  "org_traffic": 7664
+ },
+ "2026-02-28": {
+  "domain_rating": 28.0,
+  "org_keywords": 1354,
+  "org_keywords_1_3": 281,
+  "org_traffic": 6851
+ },
+ "2026-03-31": {
+  "domain_rating": 30.0,
+  "org_keywords": 1327,
+  "org_keywords_1_3": 336,
+  "org_traffic": 7991
+ },
+ "2026-04-30": {
+  "domain_rating": 29.0,
+  "org_keywords": 1190,
+  "org_keywords_1_3": 226,
+  "org_traffic": 6686
+ },
+ "2026-05-31": {
+  "domain_rating": 30.0,
+  "org_keywords": 1230,
+  "org_keywords_1_3": 263,
+  "org_traffic": 5961
+ },
+ "2026-06-30": {
+  "domain_rating": 30.0,
+  "org_keywords": 1365,
+  "org_keywords_1_3": 462,
+  "org_traffic": 7440
+ },
+ "2026-07-31": {
+  "domain_rating": 30.0,
+  "org_keywords": 1281,
+  "org_keywords_1_3": 439,
+  "org_traffic": 8038
+ },
+ "2026-08-06": {
+  "domain_rating": 30.0,
+  "org_keywords": 1284,
+  "org_keywords_1_3": 430,
+  "org_traffic": 9094
+ }
+}

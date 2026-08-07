@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+jagoo マーケティングダッシュボード データ収集スクリプト
+
+GA4 / Google Search Console / Ahrefs / HubSpot から直近13ヶ月の月次データを取得し、
+data/dashboard.json に保存する。
+
+使い方:
+  python3 scripts/collect_all.py
+
+認証情報の解決順:
+  1. 環境変数（GitHub Actions用）
+     GA4_CREDENTIALS_JSON / GSC_CREDENTIALS_JSON（client_id, client_secret,
+     refresh_token, property_id / site_url を含むJSON文字列）
+     AHREFS_TOKEN / HUBSPOT_TOKEN（トークン文字列）
+  2. ローカルの credentials-manager ストア
+     ~/.claude/.local/plugins/credentials-manager/credentials.json
+     （キー: ga4_jagoo_oauth / gsc_jagoo_oauth / ahrefs_jagoo / hubspot_jagoo）
+
+注意（jagoo-seo-datapack から引き継いだ既知の落とし穴）:
+  - GA4 は全クエリに country == Japan を強制（海外ボット除外）
+  - GA4 の期間比較は dateRanges 複数指定を使わない（ラベル逆転バグ）。
+    本スクリプトは単一期間 + yearMonth ディメンションで月次を取るため影響なし
+  - CV指標は keyEvents。HTTP 400 なら conversions にフォールバック
+  - 認証情報の値はログに一切出さない
+"""
+
+import datetime as dt
+import json
+import os
+import sys
+import urllib.parse
+from pathlib import Path
+
+import requests
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = REPO_ROOT / "data"
+OUT_PATH = DATA_DIR / "dashboard.json"
+AHREFS_HISTORY = DATA_DIR / "ahrefs_history.json"
+CRED_PATH = Path.home() / ".claude/.local/plugins/credentials-manager/credentials.json"
+
+SITE_HOST = "jagoo.co.jp"
+MONTHS_BACK = 13  # 当月含む13ヶ月（前年同月比が見られる長さ）
+JST = dt.timezone(dt.timedelta(hours=9))
+
+# 指名検索とみなす検索語（正規表現）。GSCのクエリに部分一致
+BRAND_REGEX = "ジャグー|jagoo"
+
+
+def log(msg):
+    print("[collect] " + str(msg), flush=True)
+
+
+# ---------------------------------------------------------------- 認証情報
+def _local_store():
+    if not CRED_PATH.exists():
+        return {}
+    with open(CRED_PATH, encoding="utf-8") as f:
+        return json.load(f).get("credentials", {})
+
+
+def cred_json(env_var, store_key):
+    """JSONオブジェクト型の認証情報（GA4/GSC）"""
+    v = os.environ.get(env_var)
+    if v:
+        return json.loads(v)
+    return _local_store().get(store_key)
+
+
+def cred_token(env_var, store_key, field="token"):
+    """トークン文字列型の認証情報（Ahrefs/HubSpot）"""
+    v = os.environ.get(env_var)
+    if v:
+        return v.strip()
+    c = _local_store().get(store_key)
+    if not c:
+        return None
+    return c.get(field) or c.get("api_key") or c.get("value")
+
+
+def google_access_token(cred, label):
+    r = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "client_id": cred["client_id"],
+            "client_secret": cred["client_secret"],
+            "refresh_token": cred["refresh_token"],
+            "grant_type": "refresh_token",
+        },
+        timeout=30,
+    )
+    if r.status_code != 200:
+        err = ""
+        try:
+            err = r.json().get("error", "")
+        except Exception:
+            pass
+        raise RuntimeError("%s のトークン取得に失敗（HTTP %d, %s）" % (label, r.status_code, err))
+    return r.json()["access_token"]
+
+
+# ---------------------------------------------------------------- GA4
+def f_contains(field, value):
+    return {"filter": {"fieldName": field, "stringFilter": {"matchType": "CONTAINS", "value": value}}}
+
+
+def f_exact(field, value):
+    return {"filter": {"fieldName": field, "stringFilter": {"matchType": "EXACT", "value": value}}}
+
+
+def f_and(*filters):
+    return {"andGroup": {"expressions": list(filters)}}
+
+
+class GA4:
+    def __init__(self, cred):
+        self.property_id = cred["property_id"]
+        self.token = google_access_token(cred, "GA4")
+        self.cv_metric = "keyEvents"
+
+    def run_report(self, body):
+        url = "https://analyticsdata.googleapis.com/v1beta/properties/%s:runReport" % self.property_id
+        r = requests.post(url, headers={"Authorization": "Bearer " + self.token}, json=body, timeout=60)
+        if r.status_code == 400 and self.cv_metric == "keyEvents" and "keyEvents" in r.text:
+            self.cv_metric = "conversions"
+            body = json.loads(json.dumps(body).replace("keyEvents", "conversions"))
+            r = requests.post(url, headers={"Authorization": "Bearer " + self.token}, json=body, timeout=60)
+        if r.status_code != 200:
+            raise RuntimeError("GA4 API エラー HTTP %d: %s" % (r.status_code, r.text[:300]))
+        return r.json()
+
+    def rows(self, start, end, dimensions, metrics, dim_filter=None, limit=100000):
+        """単一期間クエリ。country == Japan を常に強制"""
+        japan = f_exact("country", "Japan")
+        combined = f_and(dim_filter, japan) if dim_filter else japan
+        body = {
+            "dateRanges": [{"startDate": start, "endDate": end}],
+            "metrics": [{"name": m} for m in metrics],
+            "limit": limit,
+            "dimensionFilter": combined,
+        }
+        if dimensions:
+            body["dimensions"] = [{"name": d} for d in dimensions]
+        res = self.run_report(body)
+        out = []
+        for row in res.get("rows", []):
+            dims = [d["value"] for d in row.get("dimensionValues", [])]
+            mets = [float(m["value"] or 0) for m in row.get("metricValues", [])]
+            out.append((dims, mets))
+        return out
+
+
+COLUMN_ORGANIC = f_and(
+    f_contains("landingPage", "/column/"),
+    f_exact("sessionDefaultChannelGroup", "Organic Search"),
+)
+
+
+def ym_key(yearmonth):
+    """GA4のyearMonth値 '202608' → '2026-08'"""
+    return yearmonth[:4] + "-" + yearmonth[4:]
+
+
+# ---------------------------------------------------------------- GSC
+class GSC:
+    def __init__(self, cred):
+        self.site = cred.get("site_url", "https://jagoo.co.jp/")
+        self.token = google_access_token(cred, "GSC")
+
+    def query(self, body):
+        url = "https://searchconsole.googleapis.com/webmasters/v3/sites/%s/searchAnalytics/query" % (
+            urllib.parse.quote(self.site, safe="")
+        )
+        r = requests.post(url, headers={"Authorization": "Bearer " + self.token}, json=body, timeout=60)
+        if r.status_code != 200:
+            raise RuntimeError("GSC API エラー HTTP %d: %s" % (r.status_code, r.text[:300]))
+        return r.json().get("rows", [])
+
+
+# ---------------------------------------------------------------- Ahrefs
+def ahrefs_get(token, endpoint, params):
+    r = requests.get(
+        "https://api.ahrefs.com/v3/" + endpoint,
+        params=params,
+        headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError("Ahrefs API エラー HTTP %d: %s" % (r.status_code, r.text[:300]))
+    return r.json()
+
+
+def fetch_ahrefs_snapshot(token, date_str):
+    m = ahrefs_get(token, "site-explorer/metrics",
+                   {"target": SITE_HOST, "mode": "subdomains", "date": date_str, "output": "json"}
+                   ).get("metrics", {})
+    snap = {
+        "org_keywords": m.get("org_keywords"),
+        "org_keywords_1_3": m.get("org_keywords_1_3"),
+        "org_traffic": m.get("org_traffic"),
+    }
+    try:
+        dr = ahrefs_get(token, "site-explorer/domain-rating",
+                        {"target": SITE_HOST, "date": date_str, "output": "json"})
+        snap["domain_rating"] = (dr.get("domain_rating") or {}).get("domain_rating")
+    except Exception:
+        snap["domain_rating"] = None
+    return snap
+
+
+# ---------------------------------------------------------------- HubSpot
+def hubspot_count(token, object_type, filters):
+    """検索APIの total だけを使って件数を数える"""
+    r = requests.post(
+        "https://api.hubapi.com/crm/v3/objects/%s/search" % object_type,
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        json={"filterGroups": [{"filters": filters}], "limit": 1},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        raise RuntimeError("HubSpot API エラー HTTP %d（%s）: %s" % (r.status_code, object_type, r.text[:200]))
+    return r.json().get("total", 0)
+
+
+def month_range_ms(ym):
+    """'2026-08' → (月初0時, 翌月初0時) のUNIXミリ秒（JST基準）"""
+    y, m = int(ym[:4]), int(ym[5:])
+    start = dt.datetime(y, m, 1, tzinfo=JST)
+    end = dt.datetime(y + (1 if m == 12 else 0), 1 if m == 12 else m + 1, 1, tzinfo=JST)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+
+def collect_hubspot(token, months):
+    monthly = {}
+    for ym in months:
+        s, e = month_range_ms(ym)
+        between = lambda prop: [
+            {"propertyName": prop, "operator": "GTE", "value": str(s)},
+            {"propertyName": prop, "operator": "LT", "value": str(e)},
+        ]
+        monthly[ym] = {
+            "contacts": hubspot_count(token, "contacts", between("createdate")),
+            "deals": hubspot_count(token, "deals", between("createdate")),
+            "won": hubspot_count(
+                token, "deals",
+                between("closedate") + [{"propertyName": "hs_is_closed_won", "operator": "EQ", "value": "true"}],
+            ),
+        }
+    return monthly
+
+
+# ---------------------------------------------------------------- main
+def main():
+    now = dt.datetime.now(JST)
+    today = now.date()
+    yesterday = today - dt.timedelta(days=1)
+
+    # 当月を含む直近13ヶ月のリスト（"YYYY-MM"）
+    months = []
+    y, m = today.year, today.month
+    for _ in range(MONTHS_BACK):
+        months.append("%04d-%02d" % (y, m))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    months.reverse()
+    range_start = months[0] + "-01"
+    range_end = yesterday.isoformat()
+
+    log("対象期間: %s 〜 %s（%dヶ月）" % (range_start, range_end, len(months)))
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    out = {
+        "generated_at": now.isoformat(timespec="seconds"),
+        "site_host": SITE_HOST,
+        "months": months,
+        "current_month": months[-1],  # 当月は月途中の数値
+        "range": {"start": range_start, "end": range_end},
+    }
+    errors = []
+
+    # ============================================================ GA4
+    try:
+        log("GA4 取得中...")
+        ga4 = GA4(cred_json("GA4_CREDENTIALS_JSON", "ga4_jagoo_oauth"))
+        CV = ga4.cv_metric
+
+        site = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"],
+                              ["sessions", CV, "newUsers", "engagementRate"]):
+            site[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1],
+                                  "new_users": int(mt[2]), "eng_rate": mt[3]}
+
+        channels = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "sessionDefaultChannelGroup"],
+                              ["sessions", CV]):
+            channels.setdefault(ym_key(d[0]), {})[d[1]] = {"sessions": int(mt[0]), "cv": mt[1]}
+
+        seo = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions", CV], COLUMN_ORGANIC):
+            seo[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1]}
+
+        # 遷移率ファネル
+        col_pv = {ym_key(d[0]): int(mt[0]) for d, mt in ga4.rows(
+            range_start, range_end, ["yearMonth"], ["screenPageViews"],
+            f_contains("pagePath", "/column/"))}
+        col_to_doc = {ym_key(d[0]): int(mt[0]) for d, mt in ga4.rows(
+            range_start, range_end, ["yearMonth"], ["screenPageViews"],
+            f_and(f_contains("pageReferrer", "/column/"), f_contains("pagePath", "/document/")))}
+        doc = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions", CV],
+                              f_contains("pagePath", "/document/")):
+            doc[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1]}
+
+        funnel = {}
+        for ym in months:
+            cp = col_pv.get(ym, 0)
+            cd = col_to_doc.get(ym, 0)
+            dv = doc.get(ym, {"sessions": 0, "cv": 0})
+            funnel[ym] = {
+                "col_pv": cp,
+                "col_to_doc_pv": cd,
+                "col_to_doc_rate": (cd / cp * 100.0) if cp else None,
+                "doc_sessions": dv["sessions"],
+                "doc_cv": dv["cv"],
+                "doc_cv_rate": (dv["cv"] / dv["sessions"] * 100.0) if dv["sessions"] else None,
+            }
+
+        out["ga4"] = {"cv_metric": CV, "site": site, "channels": channels, "seo": seo}
+        out["funnel"] = funnel
+    except Exception as e:
+        errors.append("GA4: %s" % e)
+        log("GA4 取得エラー: %s" % e)
+
+    # ============================================================ GSC
+    try:
+        log("GSC 取得中...")
+        gsc = GSC(cred_json("GSC_CREDENTIALS_JSON", "gsc_jagoo_oauth"))
+
+        gsc_monthly = {}
+        daily = gsc.query({"startDate": range_start, "endDate": range_end,
+                           "dimensions": ["date"], "rowLimit": 5000})
+        for row in daily:
+            ym = row["keys"][0][:7]
+            g = gsc_monthly.setdefault(ym, {"clicks": 0, "impressions": 0, "_pos_w": 0.0})
+            g["clicks"] += row.get("clicks", 0)
+            g["impressions"] += row.get("impressions", 0)
+            g["_pos_w"] += row.get("position", 0) * row.get("impressions", 0)
+        for ym, g in gsc_monthly.items():
+            g["ctr"] = (g["clicks"] / g["impressions"] * 100.0) if g["impressions"] else 0.0
+            g["position"] = (g.pop("_pos_w") / g["impressions"]) if g["impressions"] else None
+
+        # 指名検索（月ごとに1クエリ）
+        for ym in months:
+            s = ym + "-01"
+            e = min(dt.date(int(ym[:4]) + (1 if ym[5:] == "12" else 0),
+                            1 if ym[5:] == "12" else int(ym[5:]) + 1, 1) - dt.timedelta(days=1),
+                    yesterday).isoformat()
+            if s > e:
+                continue
+            rows = gsc.query({
+                "startDate": s, "endDate": e, "dimensions": ["query"], "rowLimit": 1000,
+                "dimensionFilterGroups": [{"filters": [
+                    {"dimension": "query", "operator": "includingRegex", "expression": BRAND_REGEX}]}],
+            })
+            brand = sum(r.get("clicks", 0) for r in rows)
+            gsc_monthly.setdefault(ym, {"clicks": 0, "impressions": 0, "ctr": 0.0, "position": None})
+            gsc_monthly[ym]["brand_clicks"] = brand
+
+        out["gsc"] = gsc_monthly
+    except Exception as e:
+        errors.append("GSC: %s" % e)
+        log("GSC 取得エラー: %s" % e)
+
+    # ============================================================ Ahrefs
+    try:
+        log("Ahrefs 取得中...")
+        token = cred_token("AHREFS_TOKEN", "ahrefs_jagoo")
+        if not token:
+            raise RuntimeError("Ahrefsトークンが見つかりません")
+
+        history = {}
+        if AHREFS_HISTORY.exists():
+            with open(AHREFS_HISTORY, encoding="utf-8") as f:
+                history = json.load(f)
+
+        # 各月の月末（当月は昨日）のスナップショットを、未取得分だけ取得
+        want_dates = []
+        for ym in months:
+            yy, mm = int(ym[:4]), int(ym[5:])
+            month_end = (dt.date(yy + (1 if mm == 12 else 0), 1 if mm == 12 else mm + 1, 1)
+                         - dt.timedelta(days=1))
+            want_dates.append(min(month_end, yesterday).isoformat())
+        for d in want_dates:
+            if d not in history:
+                history[d] = fetch_ahrefs_snapshot(token, d)
+                log("Ahrefs スナップショット取得: %s" % d)
+        # 当月分は毎回更新（昨日時点に上書き）
+        history[want_dates[-1]] = fetch_ahrefs_snapshot(token, want_dates[-1])
+
+        with open(AHREFS_HISTORY, "w", encoding="utf-8") as f:
+            json.dump(history, f, ensure_ascii=False, indent=1, sort_keys=True)
+        out["ahrefs"] = {d: history[d] for d in want_dates if d in history}
+    except Exception as e:
+        errors.append("Ahrefs: %s" % e)
+        log("Ahrefs 取得エラー: %s" % e)
+
+    # ============================================================ HubSpot
+    hs_token = cred_token("HUBSPOT_TOKEN", "hubspot_jagoo")
+    if hs_token:
+        try:
+            log("HubSpot 取得中...")
+            out["hubspot"] = {"available": True, "monthly": collect_hubspot(hs_token, months)}
+        except Exception as e:
+            errors.append("HubSpot: %s" % e)
+            out["hubspot"] = {"available": False, "note": "取得エラー。詳細はerrors参照"}
+            log("HubSpot 取得エラー: %s" % e)
+    else:
+        out["hubspot"] = {"available": False,
+                          "note": "HubSpotのAPIトークン未設定。jagoo側でプライベートアプリのトークン発行後、"
+                                  "HUBSPOT_TOKEN を設定すると自動で表示されます"}
+        log("HubSpot: トークン未設定のためスキップ")
+
+    out["errors"] = errors
+
+    with open(OUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+    log("完了: %s" % OUT_PATH)
+    if errors:
+        log("取得エラーあり: " + " / ".join(errors))
+        # 主要ソース（GA4/GSC）が両方失敗したときだけ異常終了にする
+        if any(e.startswith("GA4") for e in errors) and any(e.startswith("GSC") for e in errors):
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jagoo マーケティングダッシュボード</title>
+<style>
+:root{
+  color-scheme: light;
+  --page:#f9f9f7; --surface-1:#fcfcfb;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,.10);
+  --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a; --series-4:#eda100; --series-5:#e87ba4;
+  --up:#006300; --down:#d03b3b;
+  --accent:#2a78d6; --accent-soft:#e7f0fb;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --page:#0d0d0d; --surface-1:#1a1a19;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.10);
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500; --series-5:#d55181;
+    --up:#0ca30c; --down:#e66767;
+    --accent:#3987e5; --accent-soft:#1d2c40;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface-1:#1a1a19;
+  --text-primary:#ffffff; --text-secondary:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.10);
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500; --series-5:#d55181;
+  --up:#0ca30c; --down:#e66767;
+  --accent:#3987e5; --accent-soft:#1d2c40;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text-primary);
+  font-family:system-ui,-apple-system,"Segoe UI","Hiragino Kaku Gothic ProN","Hiragino Sans",Meiryo,sans-serif;
+  font-size:14px;line-height:1.6;}
+header{padding:18px 24px 0;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
+header h1{font-size:18px;margin:0;letter-spacing:.02em;}
+header .sub{color:var(--muted);font-size:12px;}
+header .spacer{flex:1}
+#themeBtn{border:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);
+  border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:inherit;}
+nav{display:flex;gap:4px;padding:10px 24px 0;flex-wrap:wrap;border-bottom:1px solid var(--grid);}
+nav button{border:0;background:none;color:var(--text-secondary);font-family:inherit;font-size:13px;
+  padding:8px 14px;cursor:pointer;border-bottom:2px solid transparent;}
+nav button.on{color:var(--text-primary);font-weight:700;border-bottom-color:var(--accent);}
+main{padding:18px 24px 40px;max-width:1200px;margin:0 auto;}
+.tab{display:none}
+.tab.on{display:block}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px;}
+.tile{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+.tile .k{font-size:12px;color:var(--text-secondary);}
+.tile .v{font-size:26px;font-weight:700;margin:2px 0 0;}
+.tile .d{font-size:12px;}
+.tile .d.up{color:var(--up)} .tile .d.down{color:var(--down)} .tile .d.flat{color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;}
+.card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:14px 16px 10px;margin-bottom:14px;min-width:0;}
+.card h3{font-size:13px;margin:0 0 2px;}
+.card .note{font-size:11px;color:var(--muted);margin:0 0 8px;}
+.card .head{display:flex;align-items:baseline;gap:8px;}
+.card .head .sp{flex:1}
+.tblBtn{border:0;background:none;color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;text-decoration:underline;}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);margin:4px 0 2px;}
+.legend .it{display:flex;align-items:center;gap:5px;}
+.legend .sw{width:10px;height:10px;border-radius:3px;display:inline-block;}
+.chartWrap{position:relative;overflow-x:auto;}
+svg{display:block}
+.tip{position:absolute;pointer-events:none;background:var(--surface-1);border:1px solid var(--border);
+  border-radius:8px;padding:7px 10px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.15);display:none;z-index:5;min-width:120px;}
+.tip .t{color:var(--muted);font-size:11px;margin-bottom:2px;}
+.tip .r{display:flex;align-items:center;gap:6px;}
+.tip .r b{margin-left:auto;font-variant-numeric:tabular-nums;}
+table.dt{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0 8px;}
+table.dt th,table.dt td{border-bottom:1px solid var(--grid);padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;}
+table.dt th:first-child,table.dt td:first-child{text-align:left;}
+table.dt th{color:var(--text-secondary);font-weight:600;}
+.msg{background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px;margin-bottom:14px;}
+.defs h3{font-size:14px;margin:18px 0 4px;}
+.defs p, .defs li{font-size:13px;color:var(--text-secondary);}
+.err{border-left:3px solid var(--down);padding-left:10px;}
+@media (max-width:600px){ main,header,nav{padding-left:12px;padding-right:12px;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>jagoo マーケティングダッシュボード</h1>
+  <span class="sub" id="genAt"></span>
+  <span class="spacer"></span>
+  <button id="themeBtn" type="button">表示切替（明/暗）</button>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+
+<script>
+const DATA = /*DATA@*/null/*@DATA*/;
+
+// ---------------------------------------------------------------- helpers
+const CS = getComputedStyle(document.documentElement);
+const cvar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const SERIES = i => cvar('--series-' + (i + 1));
+const fmtN = v => v == null ? '-' : Math.round(v).toLocaleString('ja-JP');
+const fmtP = (v, d=1) => v == null ? '-' : v.toFixed(d) + '%';
+const fmtF = (v, d=1) => v == null ? '-' : v.toFixed(d);
+const mLabel = ym => (+ym.slice(0,4)) + '年' + (+ym.slice(5)) + '月';
+const mShort = ym => (ym.slice(5) === '01' ? ym.slice(0,4) + '/' : '') + (+ym.slice(5)) + '月';
+
+function el(tag, attrs, ...kids){
+  const e = document.createElement(tag);
+  for (const k in (attrs||{})){
+    if (k === 'class') e.className = attrs[k];
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  for (const k of kids) e.append(k);
+  return e;
+}
+const svgNS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs, ...kids){
+  const e = document.createElementNS(svgNS, tag);
+  for (const k in (attrs||{})) e.setAttribute(k, attrs[k]);
+  for (const k of kids) e.append(k);
+  return e;
+}
+
+// 直近13ヶ月のうち当月（月途中）のインデックス
+const MONTHS = DATA ? DATA.months : [];
+const CUR = MONTHS.length - 1;
+
+function delta(cur, prev){
+  if (cur == null || prev == null || prev === 0) return null;
+  return (cur - prev) / prev * 100;
+}
+
+// 当月は月途中のため、件数系の前月比は日割り（1日あたり平均）で比較する
+// （期間の長さが違うもの同士をそのまま比べると誤認を招くため）
+function daysInMonth(ym){ return new Date(+ym.slice(0,4), +ym.slice(5), 0).getDate(); }
+function elapsedDays(){
+  const end = DATA.range.end; // データの最終日（昨日）
+  return end.slice(0,7) === DATA.current_month ? +end.slice(8) : daysInMonth(DATA.current_month);
+}
+
+// ---------------------------------------------------------------- tiles
+function tile(label, value, prev, opts){
+  opts = opts || {};
+  const t = el('div', {class:'tile'});
+  t.append(el('div', {class:'k'}, label));
+  t.append(el('div', {class:'v'}, opts.fmt ? opts.fmt(value) : fmtN(value)));
+  let d, body, note = '';
+  if (opts.pt){
+    // 率（%）はそのまま差を取る
+    d = (value != null && prev != null) ? value - prev : null;
+    if (d != null) body = (d >= 0 ? '+' : '') + d.toFixed(1) + 'pt';
+  } else {
+    // 件数は日割りで比較
+    const curDaily = value != null ? value / elapsedDays() : null;
+    const prevDaily = prev != null ? prev / daysInMonth(MONTHS[CUR - 1] || DATA.current_month) : null;
+    d = delta(curDaily, prevDaily);
+    if (d != null) body = (d >= 0 ? '+' : '') + d.toFixed(1) + '%';
+    note = '（日割り）';
+  }
+  if (d != null){
+    const good = opts.lowerBetter ? d < 0 : d > 0;
+    const cls = Math.abs(d) < 0.05 ? 'flat' : (good ? 'up' : 'down');
+    const arrow = Math.abs(d) < 0.05 ? '→' : (d > 0 ? '↑' : '↓');
+    t.append(el('div', {class:'d ' + cls}, arrow + ' 前月比' + note + ' ' + body));
+  } else {
+    t.append(el('div', {class:'d flat'}, '前月データなし'));
+  }
+  return t;
+}
+
+// ---------------------------------------------------------------- line chart
+// series: [{name, values:[...], color}] 単位が同じものだけを1つのグラフに載せる（軸は1本）
+function lineChart(parent, title, note, series, opts){
+  opts = opts || {};
+  const card = el('div', {class:'card'});
+  const head = el('div', {class:'head'});
+  head.append(el('h3', {}, title));
+  head.append(el('span', {class:'sp'}));
+  const btn = el('button', {class:'tblBtn', type:'button'}, '表で見る');
+  head.append(btn);
+  card.append(head);
+  if (note) card.append(el('p', {class:'note'}, note));
+
+  if (series.length >= 2){
+    const lg = el('div', {class:'legend'});
+    series.forEach((s, i) => {
+      const it = el('span', {class:'it'});
+      it.append(el('span', {class:'sw', style:'background:' + (s.color || SERIES(i))}));
+      it.append(s.name);
+      lg.append(it);
+    });
+    card.append(lg);
+  }
+
+  const W = 640, H = 220, padL = 46, padR = 84, padT = 12, padB = 26;
+  const wrap = el('div', {class:'chartWrap'});
+  const svg = sv('svg', {viewBox:`0 0 ${W} ${H}`, width:'100%', height:'auto', role:'img',
+    'aria-label': title});
+  const all = series.flatMap(s => s.values).filter(v => v != null);
+  let max = Math.max(...all, 0), min = opts.zeroBase === false ? Math.min(...all) : 0;
+  if (opts.reversed){ const t = max; max = Math.max(...all) * 1.08; min = Math.min(...all) * 0.9; }
+  if (max === min) max = min + 1;
+  max = max * 1.06;
+  const X = i => padL + (W - padL - padR) * (MONTHS.length === 1 ? 0.5 : i / (MONTHS.length - 1));
+  const Y = v => {
+    let r = (v - min) / (max - min);
+    if (opts.reversed) r = 1 - r;
+    return H - padB - (H - padT - padB) * r;
+  };
+  // grid: 3本の水平線
+  for (let g = 1; g <= 3; g++){
+    const gv = min + (max - min) * g / 3;
+    svg.append(sv('line', {x1:padL, x2:W-padR, y1:Y(gv), y2:Y(gv), stroke:cvar('--grid'), 'stroke-width':1}));
+    svg.append(sv('text', {x:padL-6, y:Y(gv)+4, 'text-anchor':'end', 'font-size':10,
+      fill:cvar('--muted'), style:'font-variant-numeric:tabular-nums'},
+      opts.fmt ? opts.fmt(gv) : fmtN(gv)));
+  }
+  // baseline
+  svg.append(sv('line', {x1:padL, x2:W-padR, y1:H-padB, y2:H-padB, stroke:cvar('--baseline'), 'stroke-width':1}));
+  // x labels（3ヶ月おき＋最終月）
+  MONTHS.forEach((m, i) => {
+    if (i % 3 === 0 || i === CUR)
+      svg.append(sv('text', {x:X(i), y:H-8, 'text-anchor':'middle', 'font-size':10, fill:cvar('--muted')}, mShort(m)));
+  });
+  // series lines（当月区間は破線＝月途中）
+  const endLabels = [];
+  series.forEach((s, si) => {
+    const color = s.color || SERIES(si);
+    const pts = s.values.map((v, i) => v == null ? null : [X(i), Y(v)]);
+    let solid = '', dash = '';
+    for (let i = 0; i < pts.length; i++){
+      if (!pts[i]) continue;
+      const cmd = (p, acc) => acc + (acc ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1);
+      if (i < CUR) solid = cmd(pts[i], solid);
+      if (i === CUR - 1 || i === CUR) dash = cmd(pts[i], dash);
+    }
+    if (solid) svg.append(sv('path', {d:solid, fill:'none', stroke:color, 'stroke-width':2, 'stroke-linejoin':'round'}));
+    if (dash) svg.append(sv('path', {d:dash, fill:'none', stroke:color, 'stroke-width':2, 'stroke-dasharray':'4 4'}));
+    const last = pts[CUR] || pts.filter(Boolean).slice(-1)[0];
+    if (last){
+      svg.append(sv('circle', {cx:last[0], cy:last[1], r:3.5, fill:color,
+        stroke:cvar('--surface-1'), 'stroke-width':2}));
+      // 系列が3本以上のときは名前を省き値だけ（名前は凡例にある。右端の重なり防止）
+      const txt = (series.length > 1 && series.length <= 2 ? s.name + ' ' : '') +
+        (opts.fmt ? opts.fmt(s.values[CUR]) : fmtN(s.values[CUR]));
+      endLabels.push({x: last[0] + 8, y: last[1] + 4, txt});
+    }
+  });
+  // 右端ラベルの重なり回避（近いものを12pxずつ押し広げる）
+  endLabels.sort((a, b) => a.y - b.y);
+  for (let i = 1; i < endLabels.length; i++){
+    if (endLabels[i].y - endLabels[i-1].y < 12) endLabels[i].y = endLabels[i-1].y + 12;
+  }
+  const overflow = endLabels.length && endLabels[endLabels.length-1].y > H - padB + 10;
+  if (overflow){
+    const shift = endLabels[endLabels.length-1].y - (H - padB + 10);
+    endLabels.forEach(l => l.y -= shift);
+  }
+  endLabels.forEach(l => svg.append(
+    sv('text', {x:l.x, y:l.y, 'font-size':10, fill:cvar('--text-secondary')}, l.txt)));
+  // hover crosshair + tooltip
+  const cross = sv('line', {y1:padT, y2:H-padB, stroke:cvar('--baseline'), 'stroke-width':1, 'stroke-dasharray':'2 3', visibility:'hidden'});
+  svg.append(cross);
+  const tip = el('div', {class:'tip'});
+  const hit = sv('rect', {x:padL, y:padT, width:W-padL-padR, height:H-padT-padB, fill:'transparent'});
+  svg.append(hit);
+  hit.addEventListener('mousemove', ev => {
+    const r = svg.getBoundingClientRect();
+    const sx = (ev.clientX - r.left) / r.width * W;
+    let i = Math.round((sx - padL) / ((W - padL - padR) / (MONTHS.length - 1)));
+    i = Math.max(0, Math.min(MONTHS.length - 1, i));
+    cross.setAttribute('x1', X(i)); cross.setAttribute('x2', X(i));
+    cross.setAttribute('visibility', 'visible');
+    tip.replaceChildren(el('div', {class:'t'}, mLabel(MONTHS[i]) + (i === CUR ? '（月途中）' : '')));
+    series.forEach((s, si) => {
+      const row = el('div', {class:'r'});
+      row.append(el('span', {class:'sw', style:'width:8px;height:8px;border-radius:2px;background:' + (s.color || SERIES(si))}));
+      row.append(el('span', {}, s.name));
+      row.append(el('b', {}, opts.fmt ? opts.fmt(s.values[i]) : fmtN(s.values[i])));
+      tip.append(row);
+    });
+    tip.style.display = 'block';
+    const px = X(i) / W * r.width;
+    tip.style.left = Math.min(px + 12, r.width - 150) + 'px';
+    tip.style.top = '30px';
+  });
+  hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); });
+  wrap.append(svg); wrap.append(tip);
+  card.append(wrap);
+
+  // 表ビュー
+  const tbl = el('table', {class:'dt', style:'display:none'});
+  const hr = el('tr', {}); hr.append(el('th', {}, '月'));
+  series.forEach(s => hr.append(el('th', {}, s.name)));
+  tbl.append(hr);
+  MONTHS.forEach((m, i) => {
+    const tr = el('tr', {});
+    tr.append(el('td', {}, mLabel(m) + (i === CUR ? '（途中）' : '')));
+    series.forEach(s => tr.append(el('td', {}, opts.fmt ? opts.fmt(s.values[i]) : fmtN(s.values[i]))));
+    tbl.append(tr);
+  });
+  card.append(tbl);
+  btn.addEventListener('click', () => {
+    const show = tbl.style.display === 'none';
+    tbl.style.display = show ? '' : 'none';
+    wrap.style.display = show ? 'none' : '';
+    btn.textContent = show ? 'グラフで見る' : '表で見る';
+  });
+  parent.append(card);
+}
+
+// ---------------------------------------------------------------- data prep
+function series(getter){ return MONTHS.map(m => { try { const v = getter(m); return v == null ? null : v; } catch(e){ return null; } }); }
+
+function build(){
+  if (!DATA){ document.getElementById('main').append(el('div', {class:'msg'}, 'データ未生成です。scripts/collect_all.py を実行してください。')); return; }
+  document.getElementById('genAt').textContent = '最終更新: ' + DATA.generated_at.replace('T', ' ').slice(0, 16) +
+    '（当月は月途中の数値・破線で表示）';
+
+  const ga = DATA.ga4 || {};
+  const site = m => (ga.site || {})[m];
+  const seo = m => (ga.seo || {})[m];
+  const fn = m => (DATA.funnel || {})[m];
+  const gsc = m => (DATA.gsc || {})[m];
+  const cur = MONTHS[CUR], prev = MONTHS[CUR - 1];
+
+  const tabs = [];
+  const nav = document.getElementById('nav');
+  const main = document.getElementById('main');
+  function addTab(name){
+    const pane = el('section', {class:'tab'});
+    const b = el('button', {type:'button'}, name);
+    b.addEventListener('click', () => {
+      nav.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+      main.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); pane.classList.add('on');
+    });
+    nav.append(b); main.append(pane); tabs.push([b, pane]);
+    return pane;
+  }
+
+  // ============================ サマリー
+  const t1 = addTab('サマリー');
+  if ((DATA.errors || []).length){
+    t1.append(el('div', {class:'msg err'}, '一部データの取得に失敗しています: ' + DATA.errors.join(' / ')));
+  }
+  const tl = el('div', {class:'tiles'});
+  const g = k => (site(cur)||{})[k], gp = k => (site(prev)||{})[k];
+  tl.append(tile('セッション（当月）', g('sessions'), gp('sessions')));
+  tl.append(tile('CV（当月）', g('cv'), gp('cv')));
+  tl.append(tile('SEO記事セッション', (seo(cur)||{}).sessions, (seo(prev)||{}).sessions));
+  tl.append(tile('SEO記事CV', (seo(cur)||{}).cv, (seo(prev)||{}).cv));
+  tl.append(tile('記事→資料DLページ遷移率', (fn(cur)||{}).col_to_doc_rate, (fn(prev)||{}).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  tl.append(tile('資料DLページ→CV率', (fn(cur)||{}).doc_cv_rate, (fn(prev)||{}).doc_cv_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  t1.append(tl);
+  const g2 = el('div', {class:'grid2'});
+  lineChart(g2, 'セッション推移', 'GA4・国=日本のみ', [
+    {name:'サイト全体', values: series(m => (site(m)||{}).sessions)},
+    {name:'SEO記事（オーガニック）', values: series(m => (seo(m)||{}).sessions)},
+  ]);
+  lineChart(g2, 'CV推移', 'GA4キーイベント（' + (ga.cv_metric || 'keyEvents') + '）', [
+    {name:'サイト全体', values: series(m => (site(m)||{}).cv)},
+    {name:'SEO記事経由', values: series(m => (seo(m)||{}).cv)},
+  ]);
+  lineChart(g2, 'GSC クリック数', '検索結果からの流入クリック', [
+    {name:'クリック', values: series(m => (gsc(m)||{}).clicks)},
+    {name:'うち指名検索', values: series(m => (gsc(m)||{}).brand_clicks)},
+  ]);
+  lineChart(g2, '新規ユーザー数', 'GA4・国=日本のみ', [
+    {name:'新規ユーザー', values: series(m => (site(m)||{}).new_users)},
+  ]);
+  t1.append(g2);
+
+  // ============================ 遷移率ファネル
+  const t2 = addTab('遷移率（記事→資料→CV）');
+  t2.append(el('div', {class:'msg'},
+    '記事→資料DLページの遷移率は「/column/から/document/へ移動したページビュー ÷ /column/のページビュー」。' +
+    'ブラウザ設定により移動元が取れない閲覧があるため実際より低めに出ます。月ごとの比較用の目安として見てください。' +
+    '資料DLページ→CV率は「/document/を見たセッションのうちCVした割合」の近似値です。'));
+  const tl2 = el('div', {class:'tiles'});
+  tl2.append(tile('記事→資料DLページ遷移率', (fn(cur)||{}).col_to_doc_rate, (fn(prev)||{}).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  tl2.append(tile('資料DLページ→CV率', (fn(cur)||{}).doc_cv_rate, (fn(prev)||{}).doc_cv_rate, {fmt:v=>fmtP(v,2), pt:true}));
+  tl2.append(tile('資料DLページ閲覧セッション', (fn(cur)||{}).doc_sessions, (fn(prev)||{}).doc_sessions));
+  tl2.append(tile('記事ページビュー', (fn(cur)||{}).col_pv, (fn(prev)||{}).col_pv));
+  t2.append(tl2);
+  const g3 = el('div', {class:'grid2'});
+  lineChart(g3, '遷移率の推移', '2つの率はどちらも%表示', [
+    {name:'記事→資料DL', values: series(m => (fn(m)||{}).col_to_doc_rate)},
+    {name:'資料DL→CV', values: series(m => (fn(m)||{}).doc_cv_rate)},
+  ], {fmt:v=>fmtP(v,2)});
+  lineChart(g3, '記事→資料DLページの遷移ページビュー', '', [
+    {name:'遷移PV', values: series(m => (fn(m)||{}).col_to_doc_pv)},
+  ]);
+  t2.append(g3);
+
+  // ============================ SEO・流入詳細
+  const t3 = addTab('SEO・流入詳細');
+  const g4 = el('div', {class:'grid2'});
+  lineChart(g4, 'GSC 表示回数', '検索結果に表示された回数', [
+    {name:'表示回数', values: series(m => (gsc(m)||{}).impressions)},
+  ]);
+  lineChart(g4, 'GSC 平均掲載順位', '上にいくほど良い（軸を反転表示）', [
+    {name:'平均順位', values: series(m => (gsc(m)||{}).position)},
+  ], {reversed:true, fmt:v=>fmtF(v,1), zeroBase:false});
+  // チャネル別（上位4チャネル＋その他）
+  const chTotals = {};
+  MONTHS.forEach(m => { const c = (ga.channels||{})[m] || {};
+    for (const k in c) chTotals[k] = (chTotals[k]||0) + c[k].sessions; });
+  const top4 = Object.keys(chTotals).sort((a,b)=>chTotals[b]-chTotals[a]).slice(0,4);
+  const chSeries = top4.map(k => ({name:k, values: series(m => ((ga.channels||{})[m]||{})[k] ? ((ga.channels||{})[m]||{})[k].sessions : 0)}));
+  chSeries.push({name:'その他', values: series(m => {
+    const c = (ga.channels||{})[m] || {}; let s = 0;
+    for (const k in c) if (!top4.includes(k)) s += c[k].sessions; return s; })});
+  lineChart(g4, 'チャネル別セッション', '流入経路の内訳（上位4＋その他）', chSeries);
+  const ah = DATA.ahrefs || {};
+  const ahDates = Object.keys(ah).sort();
+  const ahByMonth = m => { const d = ahDates.filter(x => x.slice(0,7) === m).slice(-1)[0]; return d ? ah[d] : null; };
+  lineChart(g4, 'Ahrefs 検索順位キーワード数', '検索結果に載っているキーワードの数（月末時点）', [
+    {name:'KW総数', values: series(m => (ahByMonth(m)||{}).org_keywords)},
+  ]);
+  lineChart(g4, 'Ahrefs 1〜3位キーワード数', '上位表示（1〜3位）できているキーワード数', [
+    {name:'1〜3位KW', values: series(m => (ahByMonth(m)||{}).org_keywords_1_3)},
+  ]);
+  lineChart(g4, 'Ahrefs ドメインレーティング', 'サイトの被リンク評価（0〜100）', [
+    {name:'DR', values: series(m => (ahByMonth(m)||{}).domain_rating)},
+  ], {fmt:v=>fmtF(v,0), zeroBase:false});
+  t3.append(g4);
+
+  // ============================ HubSpot
+  const t4 = addTab('HubSpot（リード・商談）');
+  const hs = DATA.hubspot || {};
+  if (!hs.available){
+    t4.append(el('div', {class:'msg'}, 'HubSpotは未接続です。' + (hs.note || '')));
+  } else {
+    const hm = m => (hs.monthly||{})[m];
+    const tl4 = el('div', {class:'tiles'});
+    tl4.append(tile('新規リード（当月）', (hm(cur)||{}).contacts, (hm(prev)||{}).contacts));
+    tl4.append(tile('新規商談（当月）', (hm(cur)||{}).deals, (hm(prev)||{}).deals));
+    tl4.append(tile('成約（当月）', (hm(cur)||{}).won, (hm(prev)||{}).won));
+    t4.append(tl4);
+    const g5 = el('div', {class:'grid2'});
+    lineChart(g5, 'リード・商談・成約の推移', 'HubSpot（作成日・成約日ベース）', [
+      {name:'新規リード', values: series(m => (hm(m)||{}).contacts)},
+      {name:'新規商談', values: series(m => (hm(m)||{}).deals)},
+      {name:'成約', values: series(m => (hm(m)||{}).won)},
+    ]);
+    lineChart(g5, 'リード→商談化率', '新規商談 ÷ 新規リード（同月比の近似値）', [
+      {name:'商談化率', values: series(m => { const h = hm(m); return h && h.contacts ? h.deals / h.contacts * 100 : null; })},
+    ], {fmt:v=>fmtP(v,1)});
+    t4.append(g5);
+  }
+
+  // ============================ 定義
+  const t5 = addTab('定義・データソース');
+  const d = el('div', {class:'defs'});
+  d.innerHTML = `
+  <h3>データソースと更新</h3>
+  <p>毎朝、GitHub Actions（自動実行の仕組み）がGA4・Search Console・Ahrefs・HubSpotのAPIからデータを取得して、このページを作り直しています。当月の数値は月途中のもので、グラフでは破線で表示しています。GSCは直近2日ほどのデータが未確定のため少なめに出ます。</p>
+  <h3>指標の定義</h3>
+  <ul>
+    <li>セッション・CV・新規ユーザー: GA4。海外ボット除外のため国=日本のみで集計。CVはGA4のキーイベント合計</li>
+    <li>SEO記事: 流入ページが /column/ 配下 かつ チャネルが Organic Search のセッション</li>
+    <li>記事→資料DLページ遷移率: /column/から/document/へ移動したページビュー ÷ /column/のページビュー（移動元が取れない閲覧があるため低めに出る近似値）</li>
+    <li>資料DLページ→CV率: /document/ を見たセッションのCV率の近似値。資料DL完了がGA4のイベントとして識別できるようになったら、正確な定義に置き換え予定</li>
+    <li>指名検索: Search Console で検索語に「ジャグー」または「jagoo」を含むクリック数</li>
+    <li>Ahrefs: 月末時点のスナップショット。KW総数=検索結果に載っているキーワード数、DR=被リンク評価（0〜100）</li>
+    <li>HubSpot: 新規リード=当月作成のコンタクト数、新規商談=当月作成の取引数、成約=当月に成約した取引数</li>
+  </ul>
+  <h3>見方のヒント</h3>
+  <ul>
+    <li>「セッションは伸びているのにCVが伸びない」月は、遷移率タブで記事→資料→CVのどこで落ちているかを確認</li>
+    <li>指名検索クリックは「会社名で調べてもらえた数」で、認知の変化を追う代わりの指標として使えます</li>
+  </ul>`;
+  t5.append(d);
+
+  tabs[0][0].classList.add('on'); tabs[0][1].classList.add('on');
+}
+
+// テーマ切替
+document.getElementById('themeBtn').addEventListener('click', () => {
+  const r = document.documentElement;
+  const curDark = r.getAttribute('data-theme') === 'dark' ||
+    (!r.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+  r.setAttribute('data-theme', curDark ? 'light' : 'dark');
+  document.getElementById('main').replaceChildren();
+  document.getElementById('nav').replaceChildren();
+  build();
+});
+build();
+</script>
+</body>
+</html>
