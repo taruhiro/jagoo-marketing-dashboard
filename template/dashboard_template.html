@@ -348,6 +348,13 @@ function build(){
   const fn = m => (DATA.funnel || {})[m] || {};
   const gsc = m => (DATA.gsc || {})[m] || {};
 
+  // 注記に使う共通の定義文
+  const CVE = (ga.cv_events || []).length ? (ga.cv_events || []).join('、') : 'キーイベント';
+  const CV_DEF = 'CV＝GA4のキーイベント合計（対象イベント: ' + CVE + '）';
+  const SEO_DEF = 'SEO記事＝サイト到着時の最初のページが記事（/column/配下）で、流入経路が検索（Organic Search）のセッション';
+  const SITE_DEF = 'サイト全体＝jagoo.co.jpの全ページ';
+  const JP_DEF = 'GA4の数値はすべて国=日本のみで集計（海外ボット除外）';
+
   const tabs = [];
   function addTab(name){
     const pane = el('section', {class:'tab'});
@@ -376,19 +383,27 @@ function build(){
   tl.append(tile('記事→資料DLページ遷移率', m => fn(m).col_to_doc_rate, {fmt:v=>fmtP(v,2), pt:true}));
   tl.append(tile('資料DL完了率', m => fn(m).complete_rate, {fmt:v=>fmtP(v,1), pt:true}));
   t1.append(tl);
-  lineChart(t1, 'セッション推移', 'GA4・国=日本のみ', [
+  t1.append(el('p', {class:'note', style:'margin:-8px 0 14px'},
+    '上のカードの定義: セッション＝サイト全体の訪問数。' + CV_DEF + '。' + SEO_DEF + '。' +
+    '記事→資料DLページ遷移率＝記事から資料一覧（/document/）へ移動したPV÷記事PV。' +
+    '資料DL完了率＝DL完了（サンクスページ到達）÷資料DLページ閲覧セッション。' + JP_DEF));
+  lineChart(t1, 'セッション推移',
+    SITE_DEF + 'の訪問数（セッション）。' + SEO_DEF + '。' + JP_DEF, [
     {name:'サイト全体', values: series(m => site(m).sessions)},
     {name:'SEO記事（オーガニック）', values: series(m => seo(m).sessions)},
   ]);
-  lineChart(t1, 'CV推移', 'GA4キーイベント（' + (ga.cv_metric || 'keyEvents') + '）', [
+  lineChart(t1, 'CV推移',
+    CV_DEF + '。サイト全体＝全ページで発生したCVの合計。SEO記事経由＝到着時の最初のページが記事（/column/配下）×検索流入（Organic Search）だったセッション中に発生したCV。' + JP_DEF, [
     {name:'サイト全体', values: series(m => site(m).cv)},
     {name:'SEO記事経由', values: series(m => seo(m).cv)},
   ]);
-  lineChart(t1, 'GSC クリック数', '検索結果からの流入クリック', [
+  lineChart(t1, 'GSC クリック数',
+    'Google検索結果でjagoo.co.jpのページがクリックされた回数（Search Console）。指名検索＝検索語に「ジャグー」または「jagoo」を含むクリック', [
     {name:'クリック', values: series(m => gsc(m).clicks)},
     {name:'うち指名検索', values: series(m => gsc(m).brand_clicks)},
   ]);
-  lineChart(t1, '新規ユーザー数', 'GA4・国=日本のみ', [
+  lineChart(t1, '新規ユーザー数',
+    '期間中に初めてサイトを訪れた人の数（GA4 newUsers）。' + JP_DEF, [
     {name:'新規ユーザー', values: series(m => site(m).new_users)},
   ]);
 
@@ -404,11 +419,16 @@ function build(){
   tl2.append(tile('資料DLページ閲覧セッション', m => fn(m).doc_sessions));
   tl2.append(tile('資料DL完了セッション', m => fn(m).complete_sessions));
   t2.append(tl2);
-  lineChart(t2, '遷移率の推移', '記事→資料DL率と、資料DLページ→DL完了率', [
+  t2.append(el('p', {class:'note', style:'margin:-8px 0 14px'},
+    '資料DLページ閲覧＝URLに/document/を含むページを見たセッション数。DL完了＝URLにcomplete/を含むサンクスページに到達したセッション数。' + JP_DEF));
+  lineChart(t2, '遷移率の推移',
+    '記事→資料DL＝記事（/column/）から資料ページ（/document/）へ移動したPV÷記事の全PV（近似値・低めに出る）。' +
+    '資料DL→完了＝DL完了サンクスページ（URLにcomplete/を含む）到達セッション÷資料ページ（/document/）閲覧セッション', [
     {name:'記事→資料DL', values: series(m => fn(m).col_to_doc_rate)},
     {name:'資料DL→完了', values: series(m => fn(m).complete_rate)},
   ], {fmt:v=>fmtP(v,2)});
-  lineChart(t2, '資料DLページと完了のセッション推移', 'お役立ち資料（/document/ と complete/）', [
+  lineChart(t2, '資料DLページと完了のセッション推移',
+    '資料DLページ閲覧＝URLに/document/を含むページを見たセッション数。DL完了＝URLにcomplete/を含むサンクスページに到達したセッション数。' + JP_DEF, [
     {name:'資料DLページ閲覧', values: series(m => fn(m).doc_sessions)},
     {name:'DL完了', values: series(m => fn(m).complete_sessions)},
   ]);
@@ -444,8 +464,10 @@ function build(){
   const svcCard = el('div', {class:'card'});
   svcCard.append(el('h3', {}, 'サービスページ別ファネル（モールごと・月次）'));
   svcCard.append(el('p', {class:'note'},
-    '各サービスページ（/service/◯◯/） → 資料DLページ（…/document/） → DL完了（…/document/thanks/）。' +
-    '遷移率＝資料DL÷ページ閲覧、完了率＝DL完了÷資料DL'));
+    'セッション数＝そのサービス紹介ページ（/service/◯◯/）を見たセッション数。' +
+    '資料DLページ＝サービス別資料請求ページ（/service/◯◯/document/）を見たセッション数。' +
+    'DL完了数＝その完了ページ（/service/◯◯/document/thanks/）に到達したセッション数。' +
+    '遷移率＝資料DLページ÷セッション数、完了率＝DL完了÷資料DLページ。' + JP_DEF));
   const labels = DATA.service_labels || {};
   const svcSum = k => {
     const s = {top:0, document:0, thanks:0};
@@ -493,9 +515,10 @@ function build(){
   const gnCard = el('div', {class:'card'});
   gnCard.append(el('h3', {}, 'モールジャンル別 記事ファネル（月次）'));
   gnCard.append(el('p', {class:'note'},
-    'URLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかでジャンルを判別。' +
-    '記事→資料DL率＝記事から/document/への遷移PV÷記事PV（移動元が取れない閲覧があるため低めに出る近似値）。' +
-    '資料DL→完了率＝そのジャンルの資料DLページのセッションのうち、DL完了（complete/）に到達した割合'));
+    'ジャンルはURLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別（含まないページは「その他」。記事は記事のURL、資料DLページ・完了ページはそのページ自身のURLで判別）。' +
+    '記事ページビュー＝そのジャンルの記事（/column/）の閲覧数。' +
+    '記事→資料DL遷移PV＝そのジャンルの記事から資料ページ（/document/）へ移動した閲覧数（移動元が取れない閲覧があるため低めに出る近似値）。遷移率＝遷移PV÷記事PV。' +
+    '資料DLページ＝そのジャンルの資料ページを見たセッション数、DL完了＝そのジャンルのサンクスページ（complete/を含むURL）到達セッション数、完了率＝DL完了÷資料DLページ。' + JP_DEF));
   const gf = m => (DATA.genre_funnel || {})[m] || {};
   function genreRows(g){
     const get = m => (gf(m))[g] || {col_pv:0, to_doc:0, doc_sessions:0, complete_sessions:0};
@@ -546,8 +569,10 @@ function build(){
   artHead.append(artSel);
   artCard.append(artHead);
   artCard.append(el('p', {class:'note'},
-    '注力KWはKPI管理シート「SEO記事アクセス計測」の記載。セッションは流入ページ=記事×オーガニック検索。' +
-    '順位は表示回数で加重した月平均で、小さいほど上位'));
+    'セッション数＝その記事がサイト到着時の最初のページで、流入経路が検索（Organic Search）だったセッション数（GA4・国=日本のみ）。' +
+    '平均掲載順位＝Google検索結果にその記事が表示されたときの平均順位（Search Console・表示回数で加重した月平均。小さいほど上位）。' +
+    '記事→資料DL遷移率＝その記事から資料ページ（/document/）へ移動したPV÷その記事の全PV（近似値・低めに出る）。' +
+    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）'));
   const artTblWrap = el('div', {class:'scrollTbl'});
   artCard.append(artTblWrap);
 
@@ -612,10 +637,12 @@ function build(){
   artCard.append(el('p', {class:'note'}, '※当月は月途中の数値。セッション表示では期間内の流入がゼロの記事を省略しています'));
   t3.append(artCard);
 
-  lineChart(t3, 'GSC 表示回数', '検索結果に表示された回数', [
+  lineChart(t3, 'GSC 表示回数',
+    'Google検索結果にjagoo.co.jpのページが表示された回数（クリック前の露出量。Search Console）', [
     {name:'表示回数', values: series(m => gsc(m).impressions)},
   ]);
-  lineChart(t3, 'GSC 平均掲載順位', '上にいくほど良い（軸を反転表示）', [
+  lineChart(t3, 'GSC 平均掲載順位',
+    'サイト全体の検索結果での平均順位（Search Console・表示回数で加重）。上にいくほど良い（軸を反転表示）', [
     {name:'平均順位', values: series(m => gsc(m).position)},
   ], {reversed:true, fmt:v=>fmtF(v,1), zeroBase:false});
   const chTotals = {};
@@ -626,17 +653,21 @@ function build(){
   chSeries.push({name:'その他', values: series(m => {
     const c = (ga.channels||{})[m] || {}; let s = 0;
     for (const k in c) if (!top4.includes(k)) s += c[k].sessions; return s; })});
-  lineChart(t3, 'チャネル別セッション', '流入経路の内訳（上位4＋その他）', chSeries);
+  lineChart(t3, 'チャネル別セッション',
+    'GA4のデフォルトチャネルグループ別のセッション数（Organic Search＝検索、Direct＝URL直接入力やブックマーク、Referral＝他サイトのリンク、Paid系＝広告）。上位4チャネル＋その他。' + JP_DEF, chSeries);
   const ah = DATA.ahrefs || {};
   const ahDates = Object.keys(ah).sort();
   const ahByMonth = m => { const d = ahDates.filter(x => x.slice(0,7) === m).slice(-1)[0]; return d ? ah[d] : {}; };
-  lineChart(t3, 'Ahrefs 検索順位キーワード数', '検索結果に載っているキーワードの数（月末時点）', [
+  lineChart(t3, 'Ahrefs 検索順位キーワード数',
+    'jagoo.co.jpがGoogle検索結果（100位以内）に表示されているキーワードの総数（Ahrefs調べ・各月末時点のスナップショット）', [
     {name:'KW総数', values: series(m => ahByMonth(m).org_keywords)},
   ]);
-  lineChart(t3, 'Ahrefs 1〜3位キーワード数', '上位表示（1〜3位）できているキーワード数', [
+  lineChart(t3, 'Ahrefs 1〜3位キーワード数',
+    'そのうち検索結果の1〜3位に表示されているキーワードの数（Ahrefs調べ・各月末時点）', [
     {name:'1〜3位KW', values: series(m => ahByMonth(m).org_keywords_1_3)},
   ]);
-  lineChart(t3, 'Ahrefs ドメインレーティング', 'サイトの被リンク評価（0〜100）', [
+  lineChart(t3, 'Ahrefs ドメインレーティング',
+    '被リンク（他サイトからのリンク）の量と質から算出されるサイトの強さの指標（0〜100・Ahrefs独自スコア・各月末時点）', [
     {name:'DR', values: series(m => ahByMonth(m).domain_rating)},
   ], {fmt:v=>fmtF(v,0), zeroBase:false});
 
@@ -648,7 +679,7 @@ function build(){
   <p>毎朝、GitHub Actions（自動実行の仕組み）がGA4・Search Console・AhrefsのAPIからデータを取得して、このページを作り直しています。当月の数値は月途中のもので、グラフでは破線で表示しています。GSCは直近2日ほどのデータが未確定のため少なめに出ます。HubSpotの数値は現在このダッシュボードには含めていません。</p>
   <h3>指標の定義</h3>
   <ul>
-    <li>セッション・CV・新規ユーザー: GA4。海外ボット除外のため国=日本のみで集計。CVはGA4のキーイベント合計</li>
+    <li>セッション・CV・新規ユーザー: GA4。海外ボット除外のため国=日本のみで集計。CVはGA4のキーイベント合計（対象イベント: ${CVE}）</li>
     <li>SEO記事: 流入ページが /column/ 配下 かつ チャネルが Organic Search のセッション</li>
     <li>記事→資料DLページ遷移率: /column/から/document/へ移動したページビュー ÷ /column/のページビュー（移動元が取れない閲覧があるため低めに出る近似値）</li>
     <li>資料DL完了: お役立ち資料のサンクスページ（URLに complete/ を含む）に到達したセッション数。資料DL完了率 = DL完了セッション ÷ /document/閲覧セッション</li>

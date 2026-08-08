@@ -353,6 +353,12 @@ def main():
             site[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1],
                                   "new_users": int(mt[2]), "eng_rate": mt[3]}
 
+        # CVに含まれるキーイベント名の一覧（画面の注記に表示する）
+        cv_events = sorted(
+            [(d[0], mt[0]) for d, mt in ga4.rows(range_start, range_end, ["eventName"], [CV])
+             if mt[0] > 0], key=lambda x: -x[1])
+        cv_event_names = [name for name, _ in cv_events]
+
         channels = {}
         for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "sessionDefaultChannelGroup"],
                               ["sessions", CV]):
@@ -450,7 +456,8 @@ def main():
             if ym in genre_funnel:
                 genre_funnel[ym][genre_of(to_path(d[1]))]["complete_sessions"] += int(mt[0])
 
-        out["ga4"] = {"cv_metric": CV, "site": site, "channels": channels, "seo": seo}
+        out["ga4"] = {"cv_metric": CV, "cv_events": cv_event_names,
+                      "site": site, "channels": channels, "seo": seo}
         out["funnel"] = funnel
         out["services"] = services
         out["service_labels"] = SERVICES
