@@ -351,7 +351,7 @@ function build(){
   // 注記に使う共通の定義文
   const CVE = (ga.cv_events || []).length ? (ga.cv_events || []).join('、') : 'キーイベント';
   const CV_DEF = 'CV＝GA4のキーイベント合計（対象イベント: ' + CVE + '）';
-  const SEO_DEF = 'SEO記事＝サイト到着時の最初のページが記事（/column/配下）で、流入経路が検索（Organic Search）のセッション';
+  const SEO_DEF = 'SEO記事＝サイト到着時の最初のページが記事（/column/配下）のセッション（流入経路は問わずすべて含む）';
   const SITE_DEF = 'サイト全体＝jagoo.co.jpの全ページ';
   const JP_DEF = 'GA4の数値はすべて国=日本のみで集計（海外ボット除外）';
 
@@ -390,15 +390,15 @@ function build(){
   lineChart(t1, 'セッション推移',
     SITE_DEF + 'の訪問数（セッション）。' + SEO_DEF + '。' + JP_DEF, [
     {name:'サイト全体', values: series(m => site(m).sessions)},
-    {name:'SEO記事（オーガニック）', values: series(m => seo(m).sessions)},
+    {name:'SEO記事', values: series(m => seo(m).sessions)},
   ]);
   lineChart(t1, 'CV推移',
-    CV_DEF + '。サイト全体＝全ページで発生したCVの合計。SEO記事経由＝到着時の最初のページが記事（/column/配下）×検索流入（Organic Search）だったセッション中に発生したCV。' + JP_DEF, [
+    CV_DEF + '。サイト全体＝全ページで発生したCVの合計。SEO記事経由＝到着時の最初のページが記事（/column/配下）だったセッション中に発生したCV（流入経路は問わない）。' + JP_DEF, [
     {name:'サイト全体', values: series(m => site(m).cv)},
     {name:'SEO記事経由', values: series(m => seo(m).cv)},
   ]);
   lineChart(t1, 'GSC クリック数',
-    'Google検索結果でjagoo.co.jpのページがクリックされた回数（Search Console）。指名検索＝検索語に「ジャグー」または「jagoo」を含むクリック', [
+    'Google検索結果でjagoo.co.jpのページがクリックされた回数（Search Console）。指名検索＝検索語に「ジャグー株式会社」「ジャグー」「jagoo」のいずれかを含むクリック', [
     {name:'クリック', values: series(m => gsc(m).clicks)},
     {name:'うち指名検索', values: series(m => gsc(m).brand_clicks)},
   ]);
@@ -563,75 +563,204 @@ function build(){
   artHead.append(el('h3', {}, 'SEO記事別 月次実績'));
   artHead.append(el('span', {class:'sp'}));
   const artSel = el('select', {class:'metricSel'});
-  artSel.append(el('option', {value:'sessions'}, 'セッション数（GA4・オーガニック）'));
+  artSel.append(el('option', {value:'sessions'}, 'セッション数（GA4）'));
+  artSel.append(el('option', {value:'gsc_impr'}, 'GSC 表示回数'));
+  artSel.append(el('option', {value:'gsc_clicks'}, 'GSC クリック数'));
   artSel.append(el('option', {value:'position'}, '平均掲載順位（GSC）'));
   artSel.append(el('option', {value:'todoc'}, '記事→資料DL遷移率'));
+  const granSel = el('select', {class:'metricSel', style:'display:none'});
+  granSel.append(el('option', {value:'month'}, '月別'));
+  granSel.append(el('option', {value:'week'}, '週別（月〜日）'));
+  granSel.append(el('option', {value:'day'}, '日別'));
+  artHead.append(granSel);
   artHead.append(artSel);
   artCard.append(artHead);
   artCard.append(el('p', {class:'note'},
-    'セッション数＝その記事がサイト到着時の最初のページで、流入経路が検索（Organic Search）だったセッション数（GA4・国=日本のみ）。' +
-    '平均掲載順位＝Google検索結果にその記事が表示されたときの平均順位（Search Console・表示回数で加重した月平均。小さいほど上位）。' +
+    'セッション数＝その記事がサイト到着時の最初のページだったセッション数（流入経路は問わない。GA4・国=日本のみ）。' +
+    'GSC表示回数＝Google検索結果にその記事が表示された回数、GSCクリック数＝クリックされた回数（Search Console）。' +
+    'GSC表示回数・クリック数は右のプルダウンで月別／週別（月曜〜日曜）／日別（選択期間の直近31日）を切り替えられます。' +
+    '平均掲載順位＝検索結果に表示されたときの平均順位（表示回数で加重した月平均。小さいほど上位）。' +
     '記事→資料DL遷移率＝その記事から資料ページ（/document/）へ移動したPV÷その記事の全PV（近似値・低めに出る）。' +
-    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）'));
+    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）。先頭の「全記事 合計」行はサイト内の全記事の合計値'));
   const artTblWrap = el('div', {class:'scrollTbl'});
   artCard.append(artTblWrap);
 
+  // 日付ユーティリティ（時差ズレ防止のため手組みで整形）
+  const isoOf = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const dateOf = iso => new Date(+iso.slice(0,4), +iso.slice(5,7)-1, +iso.slice(8,10));
+  function monthEndIso(ym){ return isoOf(new Date(+ym.slice(0,4), +ym.slice(5), 0)); }
+
+  // GSC日次データ用: 表示粒度に応じた期間リストと「日付→期間番号」の対応表を作る
+  function gscPeriods(gran){
+    const startIso = FULL[VS] + '-01';
+    const endIso = DATA.range.end < monthEndIso(FULL[VE]) ? DATA.range.end : monthEndIso(FULL[VE]);
+    const periods = [], idx = new Map();
+    if (gran === 'month'){
+      VM().forEach((m, i) => periods.push({label: mShort(m) + (m === DATA.current_month ? '※' : '')}));
+      let d = dateOf(startIso);
+      const end = dateOf(endIso);
+      while (d <= end){ const i = VM().indexOf(isoOf(d).slice(0,7)); if (i >= 0) idx.set(isoOf(d), i); d.setDate(d.getDate()+1); }
+    } else if (gran === 'week'){
+      let d = dateOf(startIso);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7));  // その週の月曜まで戻る
+      const end = dateOf(endIso);
+      while (d <= end){
+        periods.push({label: (d.getMonth()+1) + '/' + d.getDate() + '週'});
+        for (let k = 0; k < 7; k++){
+          const dd = new Date(d); dd.setDate(d.getDate()+k);
+          idx.set(isoOf(dd), periods.length - 1);
+        }
+        d.setDate(d.getDate() + 7);
+      }
+    } else {
+      // 日別は選択期間の直近31日
+      const end = dateOf(endIso);
+      let s = new Date(end); s.setDate(end.getDate() - 30);
+      if (isoOf(s) < startIso) s = dateOf(startIso);
+      let d = new Date(s);
+      while (d <= end){
+        periods.push({label: (d.getMonth()+1) + '/' + d.getDate()});
+        idx.set(isoOf(d), periods.length - 1);
+        d.setDate(d.getDate()+1);
+      }
+    }
+    return {periods, idx};
+  }
+
   function renderArtTbl(){
     const metric = artSel.value;
+    const isGsc = metric === 'gsc_impr' || metric === 'gsc_clicks';
+    granSel.style.display = isGsc ? '' : 'none';
+    const gran = isGsc ? granSel.value : 'month';
     const arts = DATA.articles || {};
     const poss = DATA.article_positions || {};
     const af = DATA.article_funnel || {};
+    const ag = DATA.article_gsc || {};
     const kws = DATA.article_keywords || {};
-    // 行の並びは期間内セッション合計の多い順（どの表示でも同じ並びで見比べやすく）
-    const paths = [...new Set([...Object.keys(arts), ...Object.keys(poss)])];
+    const gi = metric === 'gsc_clicks' ? 0 : 1;  // 日次データ [クリック, 表示回数]
+
+    // 記事ごとの月次表示回数（順位の加重平均用）
+    const imprByMonth = p => {
+      const out = {};
+      for (const d in (ag[p] || {})){ const ym = d.slice(0,7);
+        out[ym] = (out[ym] || 0) + ag[p][d][1]; }
+      return out;
+    };
+
+    const paths = [...new Set([...Object.keys(arts), ...Object.keys(poss), ...Object.keys(ag)])];
     const sesSum = p => VM().reduce((s, m) => s + ((arts[p] || {})[m] || 0), 0);
-    paths.sort((a, b) => sesSum(b) - sesSum(a));
+
+    let periods, dateIdx = null;
+    if (isGsc){
+      const g = gscPeriods(gran);
+      periods = g.periods; dateIdx = g.idx;
+    } else {
+      periods = VM().map(m => ({label: mShort(m) + (m === DATA.current_month ? '※' : '')}));
+    }
+
+    // 記事×期間の値を先に計算（並び替え・合計行にも使う）
+    const rowVals = new Map();
+    paths.forEach(p => {
+      const vals = new Array(periods.length).fill(null);
+      if (isGsc){
+        for (let i = 0; i < vals.length; i++) vals[i] = 0;
+        for (const d in (ag[p] || {})){
+          const i = dateIdx.get(d);
+          if (i != null) vals[i] += ag[p][d][gi];
+        }
+      } else if (metric === 'sessions'){
+        VM().forEach((m, i) => { vals[i] = (arts[p] || {})[m] || 0; });
+      } else if (metric === 'position'){
+        VM().forEach((m, i) => { vals[i] = (poss[p] || {})[m] ?? null; });
+      } else {
+        VM().forEach((m, i) => {
+          const f = ((af[p] || {})[m]) || null;
+          vals[i] = f && f.pv ? f.to_doc / f.pv * 100 : null;
+        });
+      }
+      rowVals.set(p, vals);
+    });
+    const numSum = p => rowVals.get(p).reduce((s, v) => s + (v || 0), 0);
+
+    // 並び順: 件数系はその指標の期間合計、順位・遷移率はセッション合計
+    if (isGsc) paths.sort((a, b) => numSum(b) - numSum(a));
+    else paths.sort((a, b) => sesSum(b) - sesSum(a));
+
     const tbl = el('table', {class:'dt'});
     const thead = el('thead', {}), tbody = el('tbody', {});
     const hr = el('tr', {});
     hr.append(el('th', {}, '注力KW'));
     hr.append(el('th', {}, '記事'));
-    VM().forEach(m => hr.append(el('th', {}, mShort(m) + (m === DATA.current_month ? '※' : ''))));
+    periods.forEach(pr => hr.append(el('th', {}, pr.label)));
     hr.append(el('th', {}, metric === 'position' ? '期間平均' : metric === 'todoc' ? '期間率' : '期間計'));
     thead.append(hr);
+
+    // 合計行（全記事）
+    const trT = el('tr', {class:'total'});
+    trT.append(el('td', {class:'l'}, '全記事 合計'));
+    trT.append(el('td', {class:'l'}, ''));
+    if (metric === 'position'){
+      // 表示回数で加重した全記事平均
+      let wsumAll = 0, wAll = 0;
+      VM().forEach((m, i) => {
+        let wsum = 0, w = 0;
+        paths.forEach(p => {
+          const pos = (poss[p] || {})[m];
+          if (pos == null) return;
+          const impr = imprByMonth(p)[m] || 0;
+          wsum += pos * impr; w += impr;
+        });
+        wsumAll += wsum; wAll += w;
+        trT.append(el('td', {}, w ? fmtF(wsum / w, 1) : '-'));
+      });
+      trT.append(el('td', {}, wAll ? fmtF(wsumAll / wAll, 1) : '-'));
+    } else if (metric === 'todoc'){
+      const fs = VM().map(m => { let pv = 0, td = 0;
+        paths.forEach(p => { const f = ((af[p] || {})[m]); if (f){ pv += f.pv; td += f.to_doc; } });
+        return [pv, td]; });
+      fs.forEach(([pv, td]) => trT.append(el('td', {}, pv ? fmtP(td / pv * 100, 2) : '-')));
+      const pvA = fs.reduce((s, x) => s + x[0], 0), tdA = fs.reduce((s, x) => s + x[1], 0);
+      trT.append(el('td', {}, pvA ? fmtP(tdA / pvA * 100, 2) : '-'));
+    } else {
+      const totals = new Array(periods.length).fill(0);
+      paths.forEach(p => rowVals.get(p).forEach((v, i) => { totals[i] += v || 0; }));
+      totals.forEach(v => trT.append(el('td', {}, fmtN(v))));
+      trT.append(el('td', {}, fmtN(totals.reduce((s, v) => s + v, 0))));
+    }
+    tbody.append(trT);
+
     paths.forEach(p => {
-      if (metric !== 'position' && sesSum(p) === 0) return;  // 期間内流入ゼロの記事は省略
+      // 期間内の実績がゼロの記事は省略（順位表示は除く）
+      if (metric !== 'position' && numSum(p) === 0) return;
       const tr = el('tr', {});
       tr.append(el('td', {class:'l'}, kws[p] || '-'));
       const a = el('a', {href:'https://jagoo.co.jp' + p + '/', target:'_blank', rel:'noopener'},
         p.replace('/column/', ''));
       const tdUrl = el('td', {class:'l'}); tdUrl.append(a); tr.append(tdUrl);
-      const vals = [];
-      const fsum = {pv:0, to_doc:0};
-      VM().forEach(m => {
-        let v, disp;
-        if (metric === 'sessions'){
-          v = (arts[p] || {})[m] ?? null;
-          disp = v == null ? '0' : fmtN(v);
-        } else if (metric === 'position'){
-          v = (poss[p] || {})[m] ?? null;
-          disp = v == null ? '-' : fmtF(v, 1);
-        } else {
-          const f = ((af[p] || {})[m]) || null;
-          if (f){ fsum.pv += f.pv; fsum.to_doc += f.to_doc; }
-          v = f && f.pv ? f.to_doc / f.pv * 100 : null;
-          disp = v == null ? '-' : fmtP(v, 2);
-        }
-        if (v != null) vals.push(v);
+      const vals = rowVals.get(p);
+      vals.forEach(v => {
+        let disp;
+        if (metric === 'position') disp = v == null ? '-' : fmtF(v, 1);
+        else if (metric === 'todoc') disp = v == null ? '-' : fmtP(v, 2);
+        else disp = fmtN(v || 0);
         tr.append(el('td', {}, disp));
       });
-      if (metric === 'sessions'){
-        tr.append(el('td', {}, fmtN(vals.reduce((s, v) => s + v, 0))));
-      } else if (metric === 'position'){
-        tr.append(el('td', {}, vals.length ? fmtF(vals.reduce((s, v) => s + v, 0) / vals.length, 1) : '-'));
+      if (metric === 'position'){
+        const nn = vals.filter(v => v != null);
+        tr.append(el('td', {}, nn.length ? fmtF(nn.reduce((s, v) => s + v, 0) / nn.length, 1) : '-'));
+      } else if (metric === 'todoc'){
+        let pv = 0, td = 0;
+        VM().forEach(m => { const f = ((af[p] || {})[m]); if (f){ pv += f.pv; td += f.to_doc; } });
+        tr.append(el('td', {}, pv ? fmtP(td / pv * 100, 2) : '-'));
       } else {
-        tr.append(el('td', {}, fsum.pv ? fmtP(fsum.to_doc / fsum.pv * 100, 2) : '-'));
+        tr.append(el('td', {}, fmtN(numSum(p))));
       }
       tbody.append(tr);
     });
     tbl.append(thead); tbl.append(tbody);
     artTblWrap.replaceChildren(tbl);
   }
+  granSel.addEventListener('change', renderArtTbl);
   artSel.addEventListener('change', renderArtTbl);
   renderArtTbl();
   artCard.append(el('p', {class:'note'}, '※当月は月途中の数値。セッション表示では期間内の流入がゼロの記事を省略しています'));
@@ -680,13 +809,13 @@ function build(){
   <h3>指標の定義</h3>
   <ul>
     <li>セッション・CV・新規ユーザー: GA4。海外ボット除外のため国=日本のみで集計。CVはGA4のキーイベント合計（対象イベント: ${CVE}）</li>
-    <li>SEO記事: 流入ページが /column/ 配下 かつ チャネルが Organic Search のセッション</li>
+    <li>SEO記事: サイト到着時の最初のページが /column/ 配下のセッション（流入経路は問わずすべて含む）</li>
     <li>記事→資料DLページ遷移率: /column/から/document/へ移動したページビュー ÷ /column/のページビュー（移動元が取れない閲覧があるため低めに出る近似値）</li>
     <li>資料DL完了: お役立ち資料のサンクスページ（URLに complete/ を含む）に到達したセッション数。資料DL完了率 = DL完了セッション ÷ /document/閲覧セッション</li>
     <li>サービス別ファネル: /service/◯◯/（ページ閲覧）→ /service/◯◯/document/（資料DLページ）→ /service/◯◯/document/thanks/（DL完了）の各セッション数。対象は楽天・Amazon・Yahoo!・Qoo10・TikTok Shop・ECサイト構築・LP制作・広告運用の8サービス</li>
     <li>モールジャンル: URLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別し、どれにも当てはまらないページは「その他」。記事は記事URL、資料DLページ・DL完了ページはそのページ自身のURLで判別</li>
     <li>記事→資料DL遷移率（記事別・ジャンル別）: その記事から/document/へ移動したページビュー ÷ その記事のページビュー。移動元が取れない閲覧があるため低めに出る近似値</li>
-    <li>指名検索: Search Console で検索語に「ジャグー」または「jagoo」を含むクリック数</li>
+    <li>指名検索: Search Console で検索語に「ジャグー株式会社」「ジャグー」「jagoo」のいずれかを含むクリック数</li>
     <li>Ahrefs: 月末時点のスナップショット。KW総数=検索結果に載っているキーワード数、DR=被リンク評価（0〜100）</li>
   </ul>
   <h3>期間フィルタ</h3>

@@ -46,7 +46,7 @@ MONTHS_BACK = 13  # 当月含む13ヶ月（前年同月比が見られる長さ�
 JST = dt.timezone(dt.timedelta(hours=9))
 
 # 指名検索とみなす検索語（正規表現）。GSCのクエリに部分一致
-BRAND_REGEX = "ジャグー|jagoo"
+BRAND_REGEX = "ジャグー株式会社|ジャグー|jagoo"
 
 
 def log(msg):
@@ -152,10 +152,9 @@ class GA4:
         return out
 
 
-COLUMN_ORGANIC = f_and(
-    f_contains("landingPage", "/column/"),
-    f_exact("sessionDefaultChannelGroup", "Organic Search"),
-)
+# SEO記事＝到着時の最初のページが/column/配下のセッション。
+# 流入経路（チャネル）では絞らない（2026-08-08 Hiroto指示でOrganic Search限定を撤廃）
+COLUMN_ARTICLES = f_contains("landingPage", "/column/")
 
 
 def ym_key(yearmonth):
@@ -365,7 +364,7 @@ def main():
             channels.setdefault(ym_key(d[0]), {})[d[1]] = {"sessions": int(mt[0]), "cv": mt[1]}
 
         seo = {}
-        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions", CV], COLUMN_ORGANIC):
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions", CV], COLUMN_ARTICLES):
             seo[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1]}
 
         # 遷移率ファネル
@@ -412,7 +411,7 @@ def main():
         # SEO記事別: 月次セッション（流入ページ=/column/×オーガニック）
         articles = {}
         for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "landingPage"], ["sessions"],
-                              COLUMN_ORGANIC):
+                              COLUMN_ARTICLES):
             path = to_path(d[1])
             ym = ym_key(d[0])
             a = articles.setdefault(path, {})
@@ -528,6 +527,29 @@ def main():
                 if a["impr"]:
                     article_positions.setdefault(path, {})[ym] = round(a["pos_w"] / a["impr"], 1)
         out["article_positions"] = article_positions
+
+        # SEO記事ごとの表示回数・クリック（日別で取得。月別/週別は画面側で束ねる）
+        article_gsc = {}
+        start_row = 0
+        while True:
+            rows = gsc.query({
+                "startDate": range_start, "endDate": range_end,
+                "dimensions": ["page", "date"], "rowLimit": 25000, "startRow": start_row,
+                "dimensionFilterGroups": [{"filters": [
+                    {"dimension": "page", "operator": "contains", "expression": "/column/"}]}],
+            })
+            for r in rows:
+                path = to_path(r["keys"][0])
+                day = r["keys"][1]
+                d0 = article_gsc.setdefault(path, {})
+                prev = d0.get(day)
+                c, i = r.get("clicks", 0), r.get("impressions", 0)
+                d0[day] = [prev[0] + c, prev[1] + i] if prev else [c, i]
+            if len(rows) < 25000:
+                break
+            start_row += 25000
+        out["article_gsc"] = article_gsc
+        log("GSC 記事別日次: %d記事" % len(article_gsc))
 
         out["gsc"] = gsc_monthly
     except Exception as e:
