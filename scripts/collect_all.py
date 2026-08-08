@@ -204,6 +204,25 @@ def svc_stage(path):
     return None, None
 
 
+# モールジャンルの判別ルール（URLに含まれる文字列。判定順が重要）
+GENRE_RULES = [
+    ("rakuten", "楽天"),
+    ("amazon", "Amazon"),
+    ("yahoo", "Yahoo"),
+    ("qoo10", "Qoo10"),
+    ("tiktok", "TikTok Shop"),
+]
+GENRES = [g for _, g in GENRE_RULES] + ["その他"]
+
+
+def genre_of(path):
+    p = path.lower()
+    for kw, g in GENRE_RULES:
+        if kw in p:
+            return g
+    return "その他"
+
+
 # ---------------------------------------------------------------- GSC
 class GSC:
     def __init__(self, cred):
@@ -393,11 +412,52 @@ def main():
             a = articles.setdefault(path, {})
             a[ym] = a.get(ym, 0) + int(mt[0])
 
+        # 記事別ファネル: 記事のPVと、その記事から/document/へ遷移したPV（月次）
+        article_funnel = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["screenPageViews"],
+                              f_contains("pagePath", "/column/")):
+            path, ym = to_path(d[1]), ym_key(d[0])
+            a = article_funnel.setdefault(path, {}).setdefault(ym, {"pv": 0, "to_doc": 0})
+            a["pv"] += int(mt[0])
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pageReferrer"], ["screenPageViews"],
+                              f_and(f_contains("pageReferrer", "/column/"),
+                                    f_contains("pagePath", "/document/"))):
+            path, ym = to_path(d[1]), ym_key(d[0])
+            if not path.startswith("/column/"):
+                continue
+            a = article_funnel.setdefault(path, {}).setdefault(ym, {"pv": 0, "to_doc": 0})
+            a["to_doc"] += int(mt[0])
+
+        # モールジャンル別ファネル（URLに rakuten/amazon/yahoo/qoo10/tiktok を含むかで判別）
+        # 記事PV・記事→資料DL遷移PVは記事URLのジャンル、資料DLセッション・DL完了セッションは
+        # 資料ページ/完了ページのURLのジャンルで集計する
+        genre_funnel = {ym: {g: {"col_pv": 0, "to_doc": 0, "doc_sessions": 0, "complete_sessions": 0}
+                             for g in GENRES} for ym in months}
+        for path, byym in article_funnel.items():
+            g = genre_of(path)
+            for ym, a in byym.items():
+                if ym in genre_funnel:
+                    genre_funnel[ym][g]["col_pv"] += a["pv"]
+                    genre_funnel[ym][g]["to_doc"] += a["to_doc"]
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
+                              f_contains("pagePath", "/document/")):
+            ym = ym_key(d[0])
+            if ym in genre_funnel:
+                genre_funnel[ym][genre_of(to_path(d[1]))]["doc_sessions"] += int(mt[0])
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
+                              f_contains("pagePath", "complete/")):
+            ym = ym_key(d[0])
+            if ym in genre_funnel:
+                genre_funnel[ym][genre_of(to_path(d[1]))]["complete_sessions"] += int(mt[0])
+
         out["ga4"] = {"cv_metric": CV, "site": site, "channels": channels, "seo": seo}
         out["funnel"] = funnel
         out["services"] = services
         out["service_labels"] = SERVICES
         out["articles"] = articles
+        out["article_funnel"] = article_funnel
+        out["genre_funnel"] = genre_funnel
+        out["genres"] = GENRES
     except Exception as e:
         errors.append("GA4: %s" % e)
         log("GA4 取得エラー: %s" % e)
