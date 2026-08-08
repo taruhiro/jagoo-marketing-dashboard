@@ -83,6 +83,14 @@ table.dt th,table.dt td{border-bottom:1px solid var(--grid);padding:5px 8px;text
 table.dt th:first-child,table.dt td:first-child{text-align:left;}
 table.dt th{color:var(--text-secondary);font-weight:600;}
 table.dt tr.total td{font-weight:700;border-top:2px solid var(--baseline);}
+table.dt td.l{text-align:left;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis;}
+table.dt a{color:var(--accent);text-decoration:none;}
+table.dt a:hover{text-decoration:underline;}
+.scrollTbl{max-height:520px;overflow:auto;margin:6px 0 8px;border:1px solid var(--grid);border-radius:8px;}
+.scrollTbl table.dt{margin:0;}
+.scrollTbl thead th{position:sticky;top:0;background:var(--surface-1);z-index:2;}
+.metricSel{font-family:inherit;font-size:12px;padding:4px 6px;border:1px solid var(--border);
+  border-radius:6px;background:var(--surface-1);color:var(--text-primary);}
 .msg{background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:13px;margin-bottom:14px;}
 .defs h3{font-size:14px;margin:18px 0 4px;}
 .defs p, .defs li{font-size:13px;color:var(--text-secondary);}
@@ -405,47 +413,94 @@ function build(){
     {name:'DL完了', values: series(m => fn(m).complete_sessions)},
   ]);
 
-  // ---- サービス別ファネル（表示期間の合計）
+  // ---- サービス別ファネル（月次表・指標切り替え）
   const svcCard = el('div', {class:'card'});
-  svcCard.append(el('h3', {}, 'サービスページ別ファネル（' + mLabel(FULL[VS]) + '〜' + mLabel(FULL[VE]) + 'の合計）'));
+  const svcHead = el('div', {class:'head'});
+  svcHead.append(el('h3', {}, 'サービスページ別ファネル（月次）'));
+  svcHead.append(el('span', {class:'sp'}));
+  const svcSel = el('select', {class:'metricSel'});
+  const SVC_METRICS = [
+    {key:'top', label:'ページ閲覧セッション'},
+    {key:'document', label:'資料DLページセッション'},
+    {key:'thanks', label:'DL完了セッション'},
+    {key:'r1', label:'ページ→資料DL率'},
+    {key:'r2', label:'資料DL→完了率'},
+  ];
+  SVC_METRICS.forEach((mt, i) => svcSel.append(el('option', {value:mt.key}, mt.label)));
+  svcHead.append(svcSel);
+  svcCard.append(svcHead);
   svcCard.append(el('p', {class:'note'},
-    '各サービスページ → 資料DLページ（/service/◯◯/document/） → DL完了（…/document/thanks/）のセッション数と遷移率'));
+    '各サービスページ → 資料DLページ（/service/◯◯/document/） → DL完了（…/document/thanks/）。指標を選ぶと月ごとの値が切り替わります'));
+  const svcTblWrap = el('div', {class:'scrollTbl'});
+  svcCard.append(svcTblWrap);
   const labels = DATA.service_labels || {};
-  const agg = {};
-  VM().forEach(m => {
-    const sm = (DATA.services || {})[m] || {};
-    for (const k in sm){
-      const a = agg[k] = agg[k] || {top:0, document:0, thanks:0};
-      a.top += sm[k].top; a.document += sm[k].document; a.thanks += sm[k].thanks;
-    }
-  });
-  const keys = Object.keys(agg).sort((a,b) => agg[b].top - agg[a].top);
-  const stbl = el('table', {class:'dt'});
-  const sh = el('tr', {});
-  ['サービス','ページ閲覧','資料DLページ','DL完了','ページ→資料DL率','資料DL→完了率'].forEach(h => sh.append(el('th', {}, h)));
-  stbl.append(sh);
-  const tot = {top:0, document:0, thanks:0};
-  keys.forEach(k => {
-    const a = agg[k];
-    tot.top += a.top; tot.document += a.document; tot.thanks += a.thanks;
-    const tr = el('tr', {});
-    tr.append(el('td', {}, labels[k] || k));
-    tr.append(el('td', {}, fmtN(a.top)));
-    tr.append(el('td', {}, fmtN(a.document)));
-    tr.append(el('td', {}, fmtN(a.thanks)));
-    tr.append(el('td', {}, a.top ? fmtP(a.document / a.top * 100, 1) : '-'));
-    tr.append(el('td', {}, a.document ? fmtP(a.thanks / a.document * 100, 1) : '-'));
-    stbl.append(tr);
-  });
-  const trT = el('tr', {class:'total'});
-  trT.append(el('td', {}, '合計'));
-  trT.append(el('td', {}, fmtN(tot.top)));
-  trT.append(el('td', {}, fmtN(tot.document)));
-  trT.append(el('td', {}, fmtN(tot.thanks)));
-  trT.append(el('td', {}, tot.top ? fmtP(tot.document / tot.top * 100, 1) : '-'));
-  trT.append(el('td', {}, tot.document ? fmtP(tot.thanks / tot.document * 100, 1) : '-'));
-  stbl.append(trT);
-  svcCard.append(stbl);
+
+  function svcVal(sm, k, metric){
+    const a = (sm || {})[k];
+    if (!a) return metric === 'r1' || metric === 'r2' ? null : 0;
+    if (metric === 'r1') return a.top ? a.document / a.top * 100 : null;
+    if (metric === 'r2') return a.document ? a.thanks / a.document * 100 : null;
+    return a[metric] || 0;
+  }
+  function renderSvcTbl(){
+    const metric = svcSel.value;
+    const isRate = metric === 'r1' || metric === 'r2';
+    const fmt = isRate ? (v => fmtP(v, 1)) : fmtN;
+    // 並び順は期間合計のページ閲覧数
+    const totals = {};
+    VM().forEach(m => { const sm = (DATA.services||{})[m] || {};
+      for (const k in sm) totals[k] = (totals[k]||0) + sm[k].top; });
+    const keys = Object.keys(totals).sort((a,b) => totals[b] - totals[a]);
+    const tbl = el('table', {class:'dt'});
+    const thead = el('thead', {}), tbody = el('tbody', {});
+    const hr = el('tr', {});
+    hr.append(el('th', {}, 'サービス'));
+    VM().forEach(m => hr.append(el('th', {}, mShort(m) + (m === DATA.current_month ? '※' : ''))));
+    hr.append(el('th', {}, '期間計'));
+    thead.append(hr);
+    keys.forEach(k => {
+      const tr = el('tr', {});
+      tr.append(el('td', {class:'l'}, labels[k] || k));
+      const sum = {top:0, document:0, thanks:0};
+      VM().forEach(m => {
+        const sm = (DATA.services||{})[m] || {};
+        tr.append(el('td', {}, fmt(svcVal(sm, k, metric))));
+        const a = sm[k]; if (a){ sum.top += a.top; sum.document += a.document; sum.thanks += a.thanks; }
+      });
+      let total;
+      if (metric === 'r1') total = sum.top ? sum.document / sum.top * 100 : null;
+      else if (metric === 'r2') total = sum.document ? sum.thanks / sum.document * 100 : null;
+      else total = sum[metric];
+      tr.append(el('td', {}, fmt(total)));
+      tbody.append(tr);
+    });
+    // 合計行（全サービス）
+    const trT = el('tr', {class:'total'});
+    trT.append(el('td', {class:'l'}, '合計'));
+    const gsum = {top:0, document:0, thanks:0};
+    VM().forEach(m => {
+      const sm = (DATA.services||{})[m] || {};
+      const ms = {top:0, document:0, thanks:0};
+      for (const k in sm){ ms.top += sm[k].top; ms.document += sm[k].document; ms.thanks += sm[k].thanks; }
+      gsum.top += ms.top; gsum.document += ms.document; gsum.thanks += ms.thanks;
+      let v;
+      if (metric === 'r1') v = ms.top ? ms.document / ms.top * 100 : null;
+      else if (metric === 'r2') v = ms.document ? ms.thanks / ms.document * 100 : null;
+      else v = ms[metric];
+      trT.append(el('td', {}, fmt(v)));
+    });
+    let gtotal;
+    if (metric === 'r1') gtotal = gsum.top ? gsum.document / gsum.top * 100 : null;
+    else if (metric === 'r2') gtotal = gsum.document ? gsum.thanks / gsum.document * 100 : null;
+    else gtotal = gsum[metric];
+    trT.append(el('td', {}, fmt(gtotal)));
+    tbody.append(trT);
+    tbl.append(thead); tbl.append(tbody);
+    svcTblWrap.replaceChildren(tbl);
+  }
+  svcSel.addEventListener('change', renderSvcTbl);
+  renderSvcTbl();
+  svcCard.append(el('p', {class:'note'}, '※当月は月途中の数値'));
   t2.append(svcCard);
   lineChart(t2, 'サービスページ計のファネル推移', '8サービス合計のセッション数', [
     {name:'サービスページ閲覧', values: series(m => { const sm = (DATA.services||{})[m]||{}; let s=0; for(const k in sm) s+=sm[k].top; return s; })},
@@ -455,6 +510,68 @@ function build(){
 
   // ============================ SEO・流入詳細
   const t3 = addTab('SEO・流入詳細');
+
+  // ---- SEO記事別 月次実績（注力KW付き・指標切り替え）
+  const artCard = el('div', {class:'card'});
+  const artHead = el('div', {class:'head'});
+  artHead.append(el('h3', {}, 'SEO記事別 月次実績'));
+  artHead.append(el('span', {class:'sp'}));
+  const artSel = el('select', {class:'metricSel'});
+  artSel.append(el('option', {value:'sessions'}, 'セッション数（GA4・オーガニック）'));
+  artSel.append(el('option', {value:'position'}, '平均掲載順位（GSC）'));
+  artHead.append(artSel);
+  artCard.append(artHead);
+  artCard.append(el('p', {class:'note'},
+    '注力KWはKPI管理シート「SEO記事アクセス計測」の記載。セッションは流入ページ=記事×オーガニック検索。' +
+    '順位は表示回数で加重した月平均で、小さいほど上位'));
+  const artTblWrap = el('div', {class:'scrollTbl'});
+  artCard.append(artTblWrap);
+
+  function renderArtTbl(){
+    const metric = artSel.value;
+    const arts = DATA.articles || {};
+    const poss = DATA.article_positions || {};
+    const kws = DATA.article_keywords || {};
+    // 行の並びは期間内セッション合計の多い順（順位表示のときも同じ並びで見比べやすく）
+    const paths = [...new Set([...Object.keys(arts), ...Object.keys(poss)])];
+    const sesSum = p => VM().reduce((s, m) => s + ((arts[p] || {})[m] || 0), 0);
+    paths.sort((a, b) => sesSum(b) - sesSum(a));
+    const tbl = el('table', {class:'dt'});
+    const thead = el('thead', {}), tbody = el('tbody', {});
+    const hr = el('tr', {});
+    hr.append(el('th', {}, '注力KW'));
+    hr.append(el('th', {}, '記事'));
+    VM().forEach(m => hr.append(el('th', {}, mShort(m) + (m === DATA.current_month ? '※' : ''))));
+    hr.append(el('th', {}, metric === 'sessions' ? '期間計' : '期間平均'));
+    thead.append(hr);
+    paths.forEach(p => {
+      if (metric === 'sessions' && sesSum(p) === 0) return;  // 期間内流入ゼロの記事は省略
+      const tr = el('tr', {});
+      tr.append(el('td', {class:'l'}, kws[p] || '-'));
+      const a = el('a', {href:'https://jagoo.co.jp' + p + '/', target:'_blank', rel:'noopener'},
+        p.replace('/column/', ''));
+      const tdUrl = el('td', {class:'l'}); tdUrl.append(a); tr.append(tdUrl);
+      const vals = [];
+      VM().forEach(m => {
+        const v = metric === 'sessions' ? ((arts[p] || {})[m] ?? null) : ((poss[p] || {})[m] ?? null);
+        if (v != null) vals.push(v);
+        tr.append(el('td', {}, metric === 'sessions' ? (v == null ? '0' : fmtN(v)) : (v == null ? '-' : fmtF(v, 1))));
+      });
+      if (metric === 'sessions'){
+        tr.append(el('td', {}, fmtN(vals.reduce((s, v) => s + v, 0))));
+      } else {
+        tr.append(el('td', {}, vals.length ? fmtF(vals.reduce((s, v) => s + v, 0) / vals.length, 1) : '-'));
+      }
+      tbody.append(tr);
+    });
+    tbl.append(thead); tbl.append(tbody);
+    artTblWrap.replaceChildren(tbl);
+  }
+  artSel.addEventListener('change', renderArtTbl);
+  renderArtTbl();
+  artCard.append(el('p', {class:'note'}, '※当月は月途中の数値。セッション表示では期間内の流入がゼロの記事を省略しています'));
+  t3.append(artCard);
+
   lineChart(t3, 'GSC 表示回数', '検索結果に表示された回数', [
     {name:'表示回数', values: series(m => gsc(m).impressions)},
   ]);

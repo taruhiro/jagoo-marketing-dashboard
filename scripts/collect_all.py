@@ -384,10 +384,20 @@ def main():
                 svc, {"top": 0, "document": 0, "thanks": 0})
             s[stage] += int(mt[0])
 
+        # SEO記事別: 月次セッション（流入ページ=/column/×オーガニック）
+        articles = {}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "landingPage"], ["sessions"],
+                              COLUMN_ORGANIC):
+            path = to_path(d[1])
+            ym = ym_key(d[0])
+            a = articles.setdefault(path, {})
+            a[ym] = a.get(ym, 0) + int(mt[0])
+
         out["ga4"] = {"cv_metric": CV, "site": site, "channels": channels, "seo": seo}
         out["funnel"] = funnel
         out["services"] = services
         out["service_labels"] = SERVICES
+        out["articles"] = articles
     except Exception as e:
         errors.append("GA4: %s" % e)
         log("GA4 取得エラー: %s" % e)
@@ -426,6 +436,31 @@ def main():
             brand = sum(r.get("clicks", 0) for r in rows)
             gsc_monthly.setdefault(ym, {"clicks": 0, "impressions": 0, "ctr": 0.0, "position": None})
             gsc_monthly[ym]["brand_clicks"] = brand
+
+        # SEO記事ごとの平均掲載順位（月別・表示回数で加重平均）
+        article_positions = {}
+        for ym in months:
+            s = ym + "-01"
+            e = min(dt.date(int(ym[:4]) + (1 if ym[5:] == "12" else 0),
+                            1 if ym[5:] == "12" else int(ym[5:]) + 1, 1) - dt.timedelta(days=1),
+                    yesterday).isoformat()
+            if s > e:
+                continue
+            rows = gsc.query({
+                "startDate": s, "endDate": e, "dimensions": ["page"], "rowLimit": 5000,
+                "dimensionFilterGroups": [{"filters": [
+                    {"dimension": "page", "operator": "contains", "expression": "/column/"}]}],
+            })
+            agg = {}
+            for r in rows:
+                path = to_path(r["keys"][0])
+                a = agg.setdefault(path, {"pos_w": 0.0, "impr": 0})
+                a["pos_w"] += r.get("position", 0) * r.get("impressions", 0)
+                a["impr"] += r.get("impressions", 0)
+            for path, a in agg.items():
+                if a["impr"]:
+                    article_positions.setdefault(path, {})[ym] = round(a["pos_w"] / a["impr"], 1)
+        out["article_positions"] = article_positions
 
         out["gsc"] = gsc_monthly
     except Exception as e:
@@ -486,6 +521,14 @@ def main():
                           "note": "HubSpotのAPIトークン未設定。jagoo側でプライベートアプリのトークン発行後、"
                                   "HUBSPOT_TOKEN を設定すると自動で表示されます"}
         log("HubSpot: トークン未設定のためスキップ")
+
+    # 記事URL×注力KWの対応表（シート「SEO記事アクセス計測」から抽出した data/article_keywords.json）
+    kw_path = DATA_DIR / "article_keywords.json"
+    if kw_path.exists():
+        with open(kw_path, encoding="utf-8") as f:
+            out["article_keywords"] = json.load(f)
+    else:
+        out["article_keywords"] = {}
 
     out["errors"] = errors
 
