@@ -82,6 +82,7 @@ table.dt{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0 8px;}
 table.dt th,table.dt td{border-bottom:1px solid var(--grid);padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;}
 table.dt th:first-child,table.dt td:first-child{text-align:left;}
 table.dt th{color:var(--text-secondary);font-weight:600;}
+table.dt thead th:hover{color:var(--text-primary);text-decoration:underline;}
 table.dt tr.total td{font-weight:700;border-top:2px solid var(--baseline);}
 table.dt td.l{text-align:left;white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis;}
 table.dt a{color:var(--accent);text-decoration:none;}
@@ -311,15 +312,20 @@ function lineChart(parent, title, note, series, opts){
   card.append(wrap);
 
   const tbl = el('table', {class:'dt', style:'display:none'});
+  const lcHead = el('thead', {}), lcBody = el('tbody', {});
   const hr = el('tr', {}); hr.append(el('th', {}, '月'));
   series.forEach(s => hr.append(el('th', {}, s.name)));
-  tbl.append(hr);
+  lcHead.append(hr);
   M.forEach((m, i) => {
     const tr = el('tr', {});
-    tr.append(el('td', {}, mLabel(m) + (i === curIdx ? '（途中）' : '')));
+    const tdM = el('td', {}, mLabel(m) + (i === curIdx ? '（途中）' : ''));
+    tdM.dataset.sort = m;  // 月は年月キーで並び替える（文字列比較の月順ズレ防止）
+    tr.append(tdM);
     series.forEach(s => tr.append(el('td', {}, opts.fmt ? opts.fmt(s.values[i]) : fmtN(s.values[i]))));
-    tbl.append(tr);
+    lcBody.append(tr);
   });
+  tbl.append(lcHead); tbl.append(lcBody);
+  makeSortable(tbl);
   card.append(tbl);
   btn.addEventListener('click', () => {
     const show = tbl.style.display === 'none';
@@ -331,6 +337,54 @@ function lineChart(parent, title, note, series, opts){
 }
 
 function series(getter){ return VM().map(m => { try { const v = getter(m); return v == null ? null : v; } catch(e){ return null; } }); }
+
+// ---------------------------------------------------------------- 表の並び替え
+// 列見出しクリックで昇順・降順を切り替える。「合計」行（class=total）は常に先頭に固定。
+// セルに data-sort があればその値で、なければ表示文字列（数値らしければ数値）で比較する。
+function makeSortable(tbl){
+  const thead = tbl.querySelector('thead');
+  const tbody = tbl.querySelector('tbody');
+  if (!thead || !tbody) return;
+  const ths = [...thead.querySelectorAll('th')];
+  const parseNum = s => {
+    const t = s.replace(/[,%+秒]/g, '').trim();
+    if (t === '' || t === '-') return null;
+    const n = parseFloat(t);
+    return isNaN(n) ? null : n;
+  };
+  ths.forEach((th, ci) => {
+    th.style.cursor = 'pointer';
+    th.title = 'クリックで並び替え';
+    th.addEventListener('click', () => {
+      const dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+      ths.forEach(x => { delete x.dataset.dir;
+        x.textContent = x.textContent.replace(/ ?[▲▼]$/, ''); });
+      th.dataset.dir = dir;
+      th.textContent = th.textContent + (dir === 'asc' ? ' ▲' : ' ▼');
+      const rows = [...tbody.querySelectorAll('tr')];
+      const pinned = rows.filter(r => r.classList.contains('total'));
+      const body = rows.filter(r => !r.classList.contains('total'));
+      const keyOf = r => { const c = r.children[ci]; return c ? (c.dataset.sort ?? c.textContent) : ''; };
+      const hasKey = body.some(r => r.children[ci] && r.children[ci].dataset.sort != null);
+      const numeric = !hasKey && body.some(r => parseNum(keyOf(r)) != null);
+      body.sort((a, b) => {
+        const ka = keyOf(a), kb = keyOf(b);
+        let cmp;
+        if (numeric){
+          const na = parseNum(ka), nb = parseNum(kb);
+          if (na == null && nb == null) return 0;
+          if (na == null) return 1;   // 値なし（-）は常に末尾
+          if (nb == null) return -1;
+          cmp = na - nb;
+        } else {
+          cmp = String(ka).localeCompare(String(kb), 'ja');
+        }
+        return dir === 'asc' ? cmp : -cmp;
+      });
+      tbody.replaceChildren(...pinned, ...body);
+    });
+  });
+}
 
 // ---------------------------------------------------------------- build
 let activeTab = 0;
@@ -581,7 +635,8 @@ function build(){
     'GSC表示回数・クリック数は右のプルダウンで月別／週別（月曜〜日曜）／日別（選択期間の直近31日）を切り替えられます。' +
     '平均掲載順位＝検索結果に表示されたときの平均順位（表示回数で加重した月平均。小さいほど上位）。' +
     '記事→資料DL遷移率＝その記事から資料ページ（/document/）へ移動したPV÷その記事の全PV（近似値・低めに出る）。' +
-    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）。先頭の「全記事 合計」行はサイト内の全記事の合計値'));
+    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）。先頭の「全記事 合計」行はサイト内の全記事の合計値。' +
+    '列見出しをクリックすると昇順・降順で並び替えできます（合計行は先頭に固定）'));
   const artTblWrap = el('div', {class:'scrollTbl'});
   artCard.append(artTblWrap);
 
@@ -758,6 +813,7 @@ function build(){
       tbody.append(tr);
     });
     tbl.append(thead); tbl.append(tbody);
+    makeSortable(tbl);
     artTblWrap.replaceChildren(tbl);
   }
   granSel.addEventListener('change', renderArtTbl);
