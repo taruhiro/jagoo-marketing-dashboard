@@ -434,16 +434,27 @@ def main():
             a["to_doc"] += int(mt[0])
 
         # モールジャンル別ファネル（URLに rakuten/amazon/yahoo/qoo10/tiktok を含むかで判別）
-        # 記事PV・記事→資料DL遷移PVは記事URLのジャンル、資料DLセッション・DL完了セッションは
-        # 資料ページ/完了ページのURLのジャンルで集計する
-        genre_funnel = {ym: {g: {"col_pv": 0, "to_doc": 0, "doc_sessions": 0, "complete_sessions": 0}
+        # 全段階をセッション数で統一（2026-08-10 Hiroto指示。記事・遷移は記事URLのジャンル、
+        # 資料DL・DL完了はそのページ自身のURLのジャンルで集計する）
+        genre_funnel = {ym: {g: {"col_sessions": 0, "to_doc_sessions": 0,
+                                 "doc_sessions": 0, "complete_sessions": 0}
                              for g in GENRES} for ym in months}
-        for path, byym in article_funnel.items():
-            g = genre_of(path)
-            for ym, a in byym.items():
-                if ym in genre_funnel:
-                    genre_funnel[ym][g]["col_pv"] += a["pv"]
-                    genre_funnel[ym][g]["to_doc"] += a["to_doc"]
+        # 記事セッション数（そのジャンルの記事を見たセッション。複数記事を見たセッションは記事ごとに数える）
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
+                              f_contains("pagePath", "/column/")):
+            ym = ym_key(d[0])
+            if ym in genre_funnel:
+                genre_funnel[ym][genre_of(to_path(d[1]))]["col_sessions"] += int(mt[0])
+        # 記事→資料DLのセッション数（その記事から/document/へ移動したことのあるセッション）
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pageReferrer"], ["sessions"],
+                              f_and(f_contains("pageReferrer", "/column/"),
+                                    f_contains("pagePath", "/document/"))):
+            path = to_path(d[1])
+            if not path.startswith("/column/"):
+                continue
+            ym = ym_key(d[0])
+            if ym in genre_funnel:
+                genre_funnel[ym][genre_of(path)]["to_doc_sessions"] += int(mt[0])
         for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
                               f_contains("pagePath", "/document/")):
             ym = ym_key(d[0])

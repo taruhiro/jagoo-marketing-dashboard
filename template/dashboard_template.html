@@ -569,26 +569,26 @@ function build(){
   const gnCard = el('div', {class:'card'});
   gnCard.append(el('h3', {}, 'モールジャンル別 記事ファネル（月次）'));
   gnCard.append(el('p', {class:'note'},
-    'ジャンルはURLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別（含まないページは「その他」。記事は記事のURL、資料DLページ・完了ページはそのページ自身のURLで判別）。' +
-    '記事ページビュー＝そのジャンルの記事（/column/）の閲覧数。' +
-    '記事→資料DL遷移PV＝そのジャンルの記事から資料ページ（/document/）へ移動した閲覧数（移動元が取れない閲覧があるため低めに出る近似値）。遷移率＝遷移PV÷記事PV。' +
+    'すべてセッション数で統一。ジャンルはURLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別（含まないページは「その他」。記事は記事のURL、資料DLページ・完了ページはそのページ自身のURLで判別）。' +
+    '記事セッション数＝そのジャンルの記事（/column/）を見たセッション数（同じ人が同ジャンルの記事を複数見た場合は記事ごとに数えるため多少多めに出る）。' +
+    '記事→資料DLセッション数＝そのジャンルの記事から資料ページ（/document/）へ移動したことのあるセッション数（移動元が取れない閲覧があるため低めに出る近似値）。遷移率＝記事→資料DL÷記事セッション。' +
     '資料DLページ＝そのジャンルの資料ページを見たセッション数、DL完了＝そのジャンルのサンクスページ（complete/を含むURL）到達セッション数、完了率＝DL完了÷資料DLページ。' + JP_DEF));
   const gf = m => (DATA.genre_funnel || {})[m] || {};
   function genreRows(g){
-    const get = m => (gf(m))[g] || {col_pv:0, to_doc:0, doc_sessions:0, complete_sessions:0};
+    const get = m => (gf(m))[g] || {col_sessions:0, to_doc_sessions:0, doc_sessions:0, complete_sessions:0};
     const sum = () => {
-      const s = {col_pv:0, to_doc:0, doc_sessions:0, complete_sessions:0};
+      const s = {col_sessions:0, to_doc_sessions:0, doc_sessions:0, complete_sessions:0};
       VM().forEach(m => { const v = get(m);
-        s.col_pv += v.col_pv; s.to_doc += v.to_doc;
+        s.col_sessions += v.col_sessions; s.to_doc_sessions += v.to_doc_sessions;
         s.doc_sessions += v.doc_sessions; s.complete_sessions += v.complete_sessions; });
       return s;
     };
     return [
-      {label:'記事ページビュー', val:m=>get(m).col_pv, total:()=>sum().col_pv},
-      {label:'記事→資料DL 遷移PV', val:m=>get(m).to_doc, total:()=>sum().to_doc},
+      {label:'記事 セッション数', val:m=>get(m).col_sessions, total:()=>sum().col_sessions},
+      {label:'記事→資料DL セッション数', val:m=>get(m).to_doc_sessions, total:()=>sum().to_doc_sessions},
       {label:'記事→資料DL 遷移率', rate:true,
-       val:m=>{const v=get(m); return v.col_pv ? v.to_doc/v.col_pv*100 : null;},
-       total:()=>{const s=sum(); return s.col_pv ? s.to_doc/s.col_pv*100 : null;}},
+       val:m=>{const v=get(m); return v.col_sessions ? v.to_doc_sessions/v.col_sessions*100 : null;},
+       total:()=>{const s=sum(); return s.col_sessions ? s.to_doc_sessions/s.col_sessions*100 : null;}},
       {label:'資料DLページ セッション数', val:m=>get(m).doc_sessions, total:()=>sum().doc_sessions},
       {label:'DL完了 セッション数', val:m=>get(m).complete_sessions, total:()=>sum().complete_sessions},
       {label:'資料DL→完了率', rate:true,
