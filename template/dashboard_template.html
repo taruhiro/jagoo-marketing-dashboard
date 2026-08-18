@@ -248,7 +248,7 @@ function lineChart(parent, title, note, series, opts){
     if (i % step === 0 || i === M.length - 1)
       svg.append(sv('text', {x:X(i), y:H-8, 'text-anchor':'middle', 'font-size':10, fill:cvar('--muted')}, mShort(m)));
   });
-  const endLabels = [];
+  const endLabels = [], ptLabels = [];
   series.forEach((s, si) => {
     const color = s.color || SERIES(si);
     const pts = s.values.map((v, i) => v == null ? null : [X(i), Y(v)]);
@@ -270,7 +270,41 @@ function lineChart(parent, title, note, series, opts){
         (opts.fmt ? opts.fmt(s.values[lastI]) : fmtN(s.values[lastI]));
       endLabels.push({x: last[0] + 8, y: last[1] + 4, txt});
     }
+    // 各月の数値ラベル（最終月は右端のラベルに任せるため除外）
+    const endI = pts[lastI] ? lastI : pts.reduce((a, p, i) => p ? i : a, -1);
+    pts.forEach((p, i) => {
+      if (!p || i === endI) return;
+      // はっきりした谷（両隣より8px以上低い点）はラベルを点の下に置き、線との重なりを避ける
+      const pv = pts[i-1], nx = pts[i+1];
+      const below = pv && nx && p[1] > pv[1] + 8 && p[1] > nx[1] + 8;
+      ptLabels.push({gi:i, x:p[0], py:p[1], below, color,
+        txt: opts.fmt ? opts.fmt(s.values[i]) : fmtN(s.values[i])});
+    });
   });
+  // 数値ラベルの配置。基本は点の上に置き、同じ月で重なる場合は点の下→さらに下へ順にずらす
+  const xGap = (W - padL - padR) / Math.max(M.length - 1, 1);
+  const byMonth = {};
+  ptLabels.forEach(l => (byMonth[l.gi] = byMonth[l.gi] || []).push(l));
+  Object.values(byMonth).forEach(g => {
+    g.sort((a, b) => a.py - b.py);
+    let lastY = -Infinity;
+    g.forEach(l => {
+      let y = l.below ? l.py + 14 : l.py - 6;
+      if (g.length === 1 && xGap < 46 && l.gi % 2) y -= 10;  // 月数が多い時は交互に高さを変えて横の重なりを防ぐ
+      if (y - lastY < 11) y = Math.max(l.py + 14, lastY + 11);
+      y = Math.max(y, padT + 8);
+      if (y - lastY < 11) y = lastY + 11;
+      l.ly = y; lastY = y;
+    });
+    // 下にはみ出したラベルは、間隔を保ったまま全体を上へ押し戻す
+    for (let k = g.length - 1, cap = H - padB + 4; k >= 0; k--){
+      if (g[k].ly > cap) g[k].ly = cap;
+      cap = g[k].ly - 11;
+    }
+  });
+  ptLabels.forEach(l => svg.append(sv('text', {x:l.x, y:l.ly, 'text-anchor':'middle',
+    'font-size':9, fill:l.color, stroke:cvar('--surface-1'), 'stroke-width':3,
+    'paint-order':'stroke', style:'font-variant-numeric:tabular-nums'}, l.txt)));
   endLabels.sort((a, b) => a.y - b.y);
   for (let i = 1; i < endLabels.length; i++){
     if (endLabels[i].y - endLabels[i-1].y < 12) endLabels[i].y = endLabels[i-1].y + 12;
