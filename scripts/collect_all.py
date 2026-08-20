@@ -114,6 +114,10 @@ def f_and(*filters):
     return {"andGroup": {"expressions": list(filters)}}
 
 
+def f_inlist(field, values):
+    return {"filter": {"fieldName": field, "inListFilter": {"values": values}}}
+
+
 class GA4:
     def __init__(self, cred):
         self.property_id = cred["property_id"]
@@ -131,16 +135,20 @@ class GA4:
             raise RuntimeError("GA4 API エラー HTTP %d: %s" % (r.status_code, r.text[:300]))
         return r.json()
 
-    def rows(self, start, end, dimensions, metrics, dim_filter=None, limit=100000):
-        """単一期間クエリ。country == Japan を常に強制"""
-        japan = f_exact("country", "Japan")
-        combined = f_and(dim_filter, japan) if dim_filter else japan
+    def rows(self, start, end, dimensions, metrics, dim_filter=None, limit=100000, japan=True):
+        """単一期間クエリ。country == Japan を既定で強制（japan=Falseで解除。
+        CVR計測シートと突合する値など、シート側が国フィルタなしの場合のみ使う）"""
+        combined = dim_filter
+        if japan:
+            jp = f_exact("country", "Japan")
+            combined = f_and(dim_filter, jp) if dim_filter else jp
         body = {
             "dateRanges": [{"startDate": start, "endDate": end}],
             "metrics": [{"name": m} for m in metrics],
             "limit": limit,
-            "dimensionFilter": combined,
         }
+        if combined:
+            body["dimensionFilter"] = combined
         if dimensions:
             body["dimensions"] = [{"name": d} for d in dimensions]
         res = self.run_report(body)
@@ -407,6 +415,40 @@ def main():
             s = services.setdefault(ym_key(d[0]), {}).setdefault(
                 svc, {"top": 0, "document": 0, "thanks": 0})
             s[stage] += int(mt[0])
+
+        # TOP・サービスページの流入経路分解とCVR（2026-08-20追加。SEOシミュレーション②の管理指標）
+        # 到達＝TOPまたはサービス8ページを見たセッション（ページごとに数えるため複数ページ閲覧は重複あり。
+        #   KPIシートのCVRツリーと同じ基準）
+        # 着地＝そのページがサイト到着時の最初のページだったセッション（landingPageは末尾スラッシュなしで
+        #   記録されるため、スラッシュあり・なし両方をリストに入れる）
+        # 回遊到達（記事などサイト内から移動して到達した分）＝到達−着地。画面側で算出する
+        svc_paths = ["/service/%s" % k for k in SERVICES]
+        entry_pages = ["/"] + svc_paths + [p + "/" for p in svc_paths]
+        service_entry = {ym: {"reach": 0, "land_top": 0, "land_svc": 0, "svc_cv": 0.0} for ym in months}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
+                              f_inlist("pagePath", entry_pages)):
+            ym = ym_key(d[0])
+            if ym in service_entry:
+                service_entry[ym]["reach"] += int(mt[0])
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "landingPage"], ["sessions"],
+                              f_inlist("landingPage", entry_pages)):
+            ym = ym_key(d[0])
+            if ym not in service_entry:
+                continue
+            key = "land_top" if to_path(d[1]) == "/" else "land_svc"
+            service_entry[ym][key] += int(mt[0])
+        # サービスページCV＝GA4キーイベントのうち、各サービスの資料DL/問い合わせCV＋Eコマース総合資料CV。
+        # CVR計測シート（GA4キーイベント数実績）と同じ定義。シートと突合できるよう国フィルタなしで集計する
+        svc_cv_heads = ("Amazon支援", "Yahoo支援", "Qoo10支援", "TikTokShop支援", "楽天市場支援",
+                        "モール広告運用", "自社ECサイト立ち上げ", "LP制作支援", "Eコマース事業総合支援")
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "eventName"], [CV], japan=False):
+            name = d[1]
+            if not (name.endswith("CV") and name.startswith(svc_cv_heads)):
+                continue
+            ym = ym_key(d[0])
+            if ym in service_entry:
+                service_entry[ym]["svc_cv"] += mt[0]
+        out["service_entry"] = service_entry
 
         # SEO記事別: 月次セッション（流入ページ=/column/×オーガニック）
         articles = {}

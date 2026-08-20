@@ -642,6 +642,68 @@ function build(){
     {name:'DL完了', values: series(m => { const sm = (DATA.services||{})[m]||{}; let s=0; for(const k in sm) s+=sm[k].thanks; return s; })},
   ]);
 
+  // ============================ TOP・サービスページ（流入経路とCVR）
+  if (DATA.service_entry){
+    const se = m => (DATA.service_entry || {})[m] || null;
+    const seReach = m => { const v = se(m); return v ? v.reach : null; };
+    const seLandT = m => { const v = se(m); return v ? v.land_top : null; };
+    const seLandS = m => { const v = se(m); return v ? v.land_svc : null; };
+    const seKaiyu = m => { const v = se(m); return v ? Math.max(v.reach - v.land_top - v.land_svc, 0) : null; };
+    const seCv = m => { const v = se(m); return v ? v.svc_cv : null; };
+    const seCvr = m => { const v = se(m); return (v && v.reach) ? v.svc_cv / v.reach * 100 : null; };
+    const t25 = addTab('TOP・サービス流入');
+    t25.append(el('div', {class:'msg'},
+      'TOP＋サービス8ページのセッションを「どこから来たか」で3経路に分け、サービスページCVと平均CVRを月次で見るタブです（SEOシミュレーション②の管理指標）。' +
+      '回遊到達＝記事などサイト内の他ページから移動して到達した分（到達−着地で算出）。' +
+      'サービスページ直接着地＝検索などからサービスページに直接入った分。TOP直接着地＝指名検索やブックマーク等でTOPに直接入った分。'));
+    const tl25 = el('div', {class:'tiles'});
+    tl25.append(tile('TOP・サービス 合計セッション', seReach));
+    tl25.append(tile('サービスページCV', seCv));
+    tl25.append(tile('平均CVR', seCvr, {fmt:v=>fmtP(v,2), pt:true}));
+    tl25.append(tile('記事等からの回遊到達', seKaiyu));
+    t25.append(tl25);
+    t25.append(el('p', {class:'note', style:'margin:-8px 0 14px'},
+      '合計セッション＝TOP（/）とサービス8ページ（/service/◯◯/）を見たセッションの合計（複数ページを見た訪問はページごとに数えるため重複あり・KPIシートのCVRツリーと同じ基準）。' +
+      'サービスページCV＝GA4キーイベントのうち各サービスの資料DL・問い合わせCV＋Eコマース総合資料CVの合計（CVR計測シートのGA4キーイベント実績と同じ定義・国フィルタなし）。' +
+      '平均CVR＝サービスページCV÷合計セッション。セッションは国=日本のみ'));
+    const seCard = el('div', {class:'card'});
+    seCard.append(el('h3', {}, '流入経路別セッションとCVR（月次）'));
+    seCard.append(metricTable([
+      {label:'(a) 記事等からの回遊到達', val:seKaiyu,
+       total:()=>VM().reduce((s,m)=>s+(seKaiyu(m)||0),0)},
+      {label:'(b) サービスページ直接着地', val:seLandS,
+       total:()=>VM().reduce((s,m)=>s+(seLandS(m)||0),0)},
+      {label:'(c) TOP直接着地（指名等）', val:seLandT,
+       total:()=>VM().reduce((s,m)=>s+(seLandT(m)||0),0)},
+      {label:'合計セッション（到達）', val:seReach,
+       total:()=>VM().reduce((s,m)=>s+(seReach(m)||0),0)},
+      {label:'サービスページCV', val:seCv,
+       total:()=>VM().reduce((s,m)=>s+(seCv(m)||0),0)},
+      {label:'平均CVR', rate:true, val:seCvr,
+       total:()=>{const r=VM().reduce((s,m)=>s+(seReach(m)||0),0);
+                  const c=VM().reduce((s,m)=>s+(seCv(m)||0),0);
+                  return r ? c/r*100 : null;}},
+    ]));
+    seCard.append(el('p', {class:'note'}, '※当月は月途中の数値'));
+    t25.append(seCard);
+    lineChart(t25, '流入経路別セッションの推移',
+      '(a) 回遊到達＝到達−着地（記事内バナー・導線などサイト内から移動して来た分）。' +
+      '(b) サービスページ直接着地＝/service/◯◯/がサイト到着時の最初のページだったセッション。' +
+      '(c) TOP直接着地＝TOP（/）がサイト到着時の最初のページだったセッション。国=日本のみ', [
+      {name:'(a) 記事等からの回遊', values: series(seKaiyu)},
+      {name:'(b) サービス直接着地', values: series(seLandS)},
+      {name:'(c) TOP直接着地', values: series(seLandT)},
+    ]);
+    lineChart(t25, 'サービスページCVと平均CVRの推移',
+      'CV＝各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV（GA4キーイベント・国フィルタなし）。平均CVR＝CV÷合計セッション', [
+      {name:'平均CVR', values: series(seCvr)},
+    ], {fmt:v=>fmtP(v,2)});
+    lineChart(t25, 'サービスページCVの推移',
+      'GA4キーイベント基準の件数。HubSpot計測値とは一致しない月がある（目標管理はKPIシートのHubSpot値を使う）', [
+      {name:'サービスページCV', values: series(seCv)},
+    ]);
+  }
+
   // ============================ SEO・流入詳細
   const t3 = addTab('SEO・流入詳細');
 
@@ -905,6 +967,7 @@ function build(){
     <li>サービス別ファネル: /service/◯◯/（ページ閲覧）→ /service/◯◯/document/（資料DLページ）→ /service/◯◯/document/thanks/（DL完了）の各セッション数。対象は楽天・Amazon・Yahoo!・Qoo10・TikTok Shop・ECサイト構築・LP制作・広告運用の8サービス</li>
     <li>モールジャンル: URLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別し、どれにも当てはまらないページは「その他」。記事は記事URL、資料DLページ・DL完了ページはそのページ自身のURLで判別</li>
     <li>記事→資料DL遷移率（記事別・ジャンル別）: その記事から/document/へ移動したページビュー ÷ その記事のページビュー。移動元が取れない閲覧があるため低めに出る近似値</li>
+    <li>TOP・サービス流入タブ: TOP（/）とサービス8ページを見たセッション（到達）を、(a)回遊到達＝到達−着地（記事などサイト内から移動して来た分）、(b)サービスページ直接着地、(c)TOP直接着地、の3経路に分解。複数ページを見た訪問はページごとに数えるため合計に重複があり、KPIシートのCVRツリーと同じ基準。サービスページCVは各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV（GA4キーイベント）で、CVR計測シートと突合できるよう国フィルタなしで集計（セッション側は国=日本のみ）。平均CVR＝サービスページCV÷合計セッション</li>
     <li>指名検索: Search Console で検索語に「ジャグー株式会社」「ジャグー」「jagoo」のいずれかを含むクリック数</li>
     <li>Ahrefs: 月末時点のスナップショット。KW総数=検索結果に載っているキーワード数、DR=被リンク評価（0〜100）</li>
   </ul>
