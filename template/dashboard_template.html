@@ -665,12 +665,19 @@ function build(){
     t25.append(el('p', {class:'note', style:'margin:-8px 0 14px'},
       '合計セッション＝TOP（/）とサービス8ページ（/service/◯◯/）を見たセッションの合計（複数ページを見た訪問はページごとに数えるため重複あり・KPIシートのCVRツリーと同じ基準）。' +
       'サービスページCV＝GA4キーイベントのうち各サービスの資料DL・問い合わせCV＋Eコマース総合資料CVの合計（CVR計測シートのGA4キーイベント実績と同じ定義・国フィルタなし）。' +
-      '平均CVR＝サービスページCV÷合計セッション。セッションは国=日本のみ'));
+      '平均CVR＝サービスページCV÷合計セッション。' +
+      '記事からの回遊率＝(a)回遊到達÷SEO記事セッション（記事＝サイト到着時の最初のページが/column/配下のセッション・流入経路不問）。' +
+      '回遊到達には記事以外（TOPやサービスページ間の移動など）から来た分も含むため、率はやや高めに出る近似値。セッションは国=日本のみ'));
     const seCard = el('div', {class:'card'});
     seCard.append(el('h3', {}, '流入経路別セッションとCVR（月次）'));
     seCard.append(metricTable([
       {label:'(a) 記事等からの回遊到達', val:seKaiyu,
        total:()=>VM().reduce((s,m)=>s+(seKaiyu(m)||0),0)},
+      {label:'記事からの回遊率（(a)÷記事セッション）', rate:true,
+       val:m=>{const k=seKaiyu(m), a=(seo(m)||{}).sessions; return (k!=null && a) ? k/a*100 : null;},
+       total:()=>{const k=VM().reduce((s,m)=>s+(seKaiyu(m)||0),0);
+                  const a=VM().reduce((s,m)=>s+((seo(m)||{}).sessions||0),0);
+                  return a ? k/a*100 : null;}},
       {label:'(b) サービスページ直接着地', val:seLandS,
        total:()=>VM().reduce((s,m)=>s+(seLandS(m)||0),0)},
       {label:'(c) TOP直接着地（指名等）', val:seLandT,
