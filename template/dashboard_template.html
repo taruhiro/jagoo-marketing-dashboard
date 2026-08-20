@@ -651,21 +651,35 @@ function build(){
     const seKaiyu = m => { const v = se(m); return v ? Math.max(v.reach - v.land_top - v.land_svc, 0) : null; };
     const seCv = m => { const v = se(m); return v ? v.svc_cv : null; };
     const seCvr = m => { const v = se(m); return (v && v.reach) ? v.svc_cv / v.reach * 100 : null; };
+    const hsM = m => (((DATA.hubspot_leads || {}).monthly) || {})[m] || null;
+    const hsSvc = m => { const v = hsM(m); return v ? v.svc_cv : null; };
+    const hsWp = m => { const v = hsM(m); return v ? v.wp_cv : null; };
+    const hsLead = m => { const s = hsSvc(m), w = hsWp(m);
+      return (s == null || w == null) ? null : s + w; };
+    const hsCvr = m => { const v = se(m), s = hsSvc(m);
+      return (v && v.reach && s != null) ? s / v.reach * 100 : null; };
+    const hl = DATA.hubspot_leads || {};
+    const hsNote = hl.updated
+      ? 'HubSpot値の最終更新: ' + hl.updated +
+        (hl.current_month_asof ? '（当月は' + (+hl.current_month_asof.slice(5,7)) + '/' + (+hl.current_month_asof.slice(8)) + '時点）' : '')
+      : 'HubSpot値は未登録';
     const t25 = addTab('TOP・サービス流入');
     t25.append(el('div', {class:'msg'},
-      'TOP＋サービス8ページのセッションを「どこから来たか」で3経路に分け、サービスページCVと平均CVRを月次で見るタブです（SEOシミュレーション②の管理指標）。' +
+      'TOP＋サービス8ページのセッションを「どこから来たか」で3経路に分け、サービスページCV（HubSpotのリード数）と平均CVRを月次で見るタブです（SEOシミュレーション②の管理指標）。' +
       '回遊到達＝記事などサイト内の他ページから移動して到達した分（到達−着地で算出）。' +
-      'サービスページ直接着地＝検索などからサービスページに直接入った分。TOP直接着地＝指名検索やブックマーク等でTOPに直接入った分。'));
+      'サービスページ直接着地＝検索などからサービスページに直接入った分。TOP直接着地＝指名検索やブックマーク等でTOPに直接入った分。' +
+      'CV数はHubSpotのリード数を正とし、GA4キーイベントは参考として並記。' + hsNote + '。'));
     const tl25 = el('div', {class:'tiles'});
     tl25.append(tile('TOP・サービス 合計セッション', seReach));
-    tl25.append(tile('サービスページCV', seCv));
-    tl25.append(tile('平均CVR', seCvr, {fmt:v=>fmtP(v,2), pt:true}));
+    tl25.append(tile('サービスページCV（HubSpot）', hsSvc));
+    tl25.append(tile('平均CVR（HubSpot）', hsCvr, {fmt:v=>fmtP(v,2), pt:true}));
     tl25.append(tile('記事等からの回遊到達', seKaiyu));
     t25.append(tl25);
     t25.append(el('p', {class:'note', style:'margin:-8px 0 14px'},
       '合計セッション＝TOP（/）とサービス8ページ（/service/◯◯/）を見たセッションの合計（複数ページを見た訪問はページごとに数えるため重複あり・KPIシートのCVRツリーと同じ基準）。' +
-      'サービスページCV＝GA4キーイベントのうち各サービスの資料DL・問い合わせCV＋Eコマース総合資料CVの合計（CVR計測シートのGA4キーイベント実績と同じ定義・国フィルタなし）。' +
-      '平均CVR＝サービスページCV÷合計セッション。' +
+      'サービスページCV（HubSpot）＝各サービスページの資料DL＋問い合わせ＋ご相談のリード数（中継KPIシート「受注集計」のHP-系行の合計と同じ定義。自動取得ではなく手動更新）。' +
+      'WPダウンロード（HubSpot）＝ホワイトペーパーのDLリード数。' +
+      '平均CVR＝サービスページCV（HubSpot）÷合計セッション。' +
       '記事からの回遊率＝(a)回遊到達÷SEO記事セッション（記事＝サイト到着時の最初のページが/column/配下のセッション・流入経路不問）。' +
       '回遊到達には記事以外（TOPやサービスページ間の移動など）から来た分も含むため、率はやや高めに出る近似値。セッションは国=日本のみ'));
     const seCard = el('div', {class:'card'});
@@ -684,14 +698,22 @@ function build(){
        total:()=>VM().reduce((s,m)=>s+(seLandT(m)||0),0)},
       {label:'合計セッション（到達）', val:seReach,
        total:()=>VM().reduce((s,m)=>s+(seReach(m)||0),0)},
-      {label:'サービスページCV', val:seCv,
-       total:()=>VM().reduce((s,m)=>s+(seCv(m)||0),0)},
-      {label:'平均CVR', rate:true, val:seCvr,
-       total:()=>{const r=VM().reduce((s,m)=>s+(seReach(m)||0),0);
-                  const c=VM().reduce((s,m)=>s+(seCv(m)||0),0);
+      {label:'サービスページCV（HubSpot）', val:hsSvc,
+       total:()=>VM().reduce((s,m)=>s+(hsSvc(m)||0),0)},
+      {label:'平均CVR（HubSpot CV÷セッション）', rate:true, val:hsCvr,
+       total:()=>{const r=VM().reduce((s,m)=>s+(hsSvc(m)!=null?(seReach(m)||0):0),0);
+                  const c=VM().reduce((s,m)=>s+(hsSvc(m)||0),0);
                   return r ? c/r*100 : null;}},
+      {label:'WPダウンロード（HubSpot）', val:hsWp,
+       total:()=>VM().reduce((s,m)=>s+(hsWp(m)||0),0)},
+      {label:'リード数（SEO）＝サービスCV＋WP', val:hsLead,
+       total:()=>VM().reduce((s,m)=>s+(hsLead(m)||0),0)},
+      {label:'（参考）GA4キーイベント', val:seCv,
+       total:()=>VM().reduce((s,m)=>s+(seCv(m)||0),0)},
     ]));
-    seCard.append(el('p', {class:'note'}, '※当月は月途中の数値'));
+    seCard.append(el('p', {class:'note'},
+      '※当月は月途中の数値。HubSpot値は手動更新（' + hsNote + '）。値のない月は「-」。' +
+      '平均CVRの期間計はHubSpot値がある月だけで算出。（参考）GA4キーイベント＝各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV（毎朝自動更新・HubSpotと一致しない月がある）'));
     t25.append(seCard);
     lineChart(t25, '流入経路別セッションの推移',
       '(a) 回遊到達＝到達−着地（記事内バナー・導線などサイト内から移動して来た分）。' +
@@ -701,13 +723,20 @@ function build(){
       {name:'(b) サービス直接着地', values: series(seLandS)},
       {name:'(c) TOP直接着地', values: series(seLandT)},
     ]);
-    lineChart(t25, 'サービスページCVと平均CVRの推移',
-      'CV＝各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV（GA4キーイベント・国フィルタなし）。平均CVR＝CV÷合計セッション', [
-      {name:'平均CVR', values: series(seCvr)},
+    lineChart(t25, '平均CVRの推移（HubSpot CV基準）',
+      '平均CVR＝サービスページCV（HubSpotリード数・手動更新）÷合計セッション。HubSpot値のない月は表示なし', [
+      {name:'平均CVR', values: series(hsCvr)},
     ], {fmt:v=>fmtP(v,2)});
     lineChart(t25, 'サービスページCVの推移',
-      'GA4キーイベント基準の件数。HubSpot計測値とは一致しない月がある（目標管理はKPIシートのHubSpot値を使う）', [
-      {name:'サービスページCV', values: series(seCv)},
+      'HubSpot＝各サービスページの資料DL＋問い合わせ＋ご相談のリード数（手動更新・こちらが正）。' +
+      '（参考）GA4キーイベント＝毎朝自動更新の速報値。HubSpotと一致しない月がある', [
+      {name:'HubSpot', values: series(hsSvc)},
+      {name:'（参考）GA4キーイベント', values: series(seCv)},
+    ]);
+    lineChart(t25, 'HubSpotリード数の推移（サービスCVとWP）',
+      'サービスページCV＝資料DL＋問い合わせ＋ご相談。WPダウンロード＝ホワイトペーパーのDLリード数（2025年分は未入力）。いずれも手動更新', [
+      {name:'サービスページCV', values: series(hsSvc)},
+      {name:'WPダウンロード', values: series(hsWp)},
     ]);
   }
 
@@ -974,7 +1003,7 @@ function build(){
     <li>サービス別ファネル: /service/◯◯/（ページ閲覧）→ /service/◯◯/document/（資料DLページ）→ /service/◯◯/document/thanks/（DL完了）の各セッション数。対象は楽天・Amazon・Yahoo!・Qoo10・TikTok Shop・ECサイト構築・LP制作・広告運用の8サービス</li>
     <li>モールジャンル: URLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別し、どれにも当てはまらないページは「その他」。記事は記事URL、資料DLページ・DL完了ページはそのページ自身のURLで判別</li>
     <li>記事→資料DL遷移率（記事別・ジャンル別）: その記事から/document/へ移動したページビュー ÷ その記事のページビュー。移動元が取れない閲覧があるため低めに出る近似値</li>
-    <li>TOP・サービス流入タブ: TOP（/）とサービス8ページを見たセッション（到達）を、(a)回遊到達＝到達−着地（記事などサイト内から移動して来た分）、(b)サービスページ直接着地、(c)TOP直接着地、の3経路に分解。複数ページを見た訪問はページごとに数えるため合計に重複があり、KPIシートのCVRツリーと同じ基準。サービスページCVは各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV（GA4キーイベント）で、CVR計測シートと突合できるよう国フィルタなしで集計（セッション側は国=日本のみ）。平均CVR＝サービスページCV÷合計セッション</li>
+    <li>TOP・サービス流入タブ: TOP（/）とサービス8ページを見たセッション（到達）を、(a)回遊到達＝到達−着地（記事などサイト内から移動して来た分）、(b)サービスページ直接着地、(c)TOP直接着地、の3経路に分解。複数ページを見た訪問はページごとに数えるため合計に重複があり、KPIシートのCVRツリーと同じ基準。CV数はHubSpotのリード数が正（サービスページCV＝資料DL＋問い合わせ＋ご相談、WPダウンロード＝ホワイトペーパーDL。自動取得ではなく手動更新のため反映にずれあり）。平均CVR＝サービスページCV（HubSpot）÷合計セッション。GA4キーイベント（各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV・国フィルタなし）は毎朝自動更新の参考値として並記</li>
     <li>指名検索: Search Console で検索語に「ジャグー株式会社」「ジャグー」「jagoo」のいずれかを含むクリック数</li>
     <li>Ahrefs: 月末時点のスナップショット。KW総数=検索結果に載っているキーワード数、DR=被リンク評価（0〜100）</li>
   </ul>

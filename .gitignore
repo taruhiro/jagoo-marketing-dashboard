@@ -15,3 +15,6 @@ desktop.ini
 __pycache__/
 *.pyc
 *.bak
+
+# HubSpotリード数（クライアント数値のためコミットしない。Actions側はSecret HUBSPOT_LEADS_JSONを使う）
+data/hubspot_leads.json

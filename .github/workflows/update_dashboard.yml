@@ -33,6 +33,7 @@ jobs:
           GSC_CREDENTIALS_JSON: ${{ secrets.GSC_CREDENTIALS_JSON }}
           AHREFS_TOKEN: ${{ secrets.AHREFS_TOKEN }}
           HUBSPOT_TOKEN: ${{ secrets.HUBSPOT_TOKEN }}
+          HUBSPOT_LEADS_JSON: ${{ secrets.HUBSPOT_LEADS_JSON }}
         run: python scripts/collect_all.py
 
       - name: ダッシュボードHTML生成

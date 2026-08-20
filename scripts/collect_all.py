@@ -672,6 +672,20 @@ def main():
     else:
         out["article_keywords"] = {}
 
+    # HubSpotリード数（WPダウンロード・サービスページCV）。手動更新
+    # クライアント数値のためリポジトリには置かない。GitHub Actionsでは Secret HUBSPOT_LEADS_JSON、
+    # ローカルでは data/hubspot_leads.json（.gitignore済み）から読む。
+    # （HubSpotのAPIトークンが未設定のため自動取得できない。トークン設定後は collect_hubspot 側での自動化に置き換える）
+    hs_env = os.environ.get("HUBSPOT_LEADS_JSON")
+    hs_path = DATA_DIR / "hubspot_leads.json"
+    if hs_env:
+        out["hubspot_leads"] = json.loads(hs_env)
+    elif hs_path.exists():
+        with open(hs_path, encoding="utf-8") as f:
+            out["hubspot_leads"] = json.load(f)
+    else:
+        out["hubspot_leads"] = {}
+
     out["errors"] = errors
 
     with open(OUT_PATH, "w", encoding="utf-8") as f:
