@@ -954,6 +954,91 @@ function build(){
   artCard.append(el('p', {class:'note'}, '※当月は月途中の数値。セッション表示では期間内の流入がゼロの記事を省略しています'));
   t3.append(artCard);
 
+  // ---- メインKW別 月次実績（GSC・検索キーワード単位）
+  const kwCard = el('div', {class:'card'});
+  const kwHead = el('div', {class:'head'});
+  kwHead.append(el('h3', {}, 'メインKW別 月次実績（GSC）'));
+  kwHead.append(el('span', {class:'sp'}));
+  const kwSel = el('select', {class:'metricSel'});
+  kwSel.append(el('option', {value:'clicks'}, 'クリック数'));
+  kwSel.append(el('option', {value:'impressions'}, '表示回数'));
+  kwSel.append(el('option', {value:'ctr'}, 'CTR'));
+  kwSel.append(el('option', {value:'position'}, '掲載順位'));
+  kwHead.append(kwSel);
+  kwCard.append(kwHead);
+  kwCard.append(el('p', {class:'note'},
+    'ページ単位ではなく「検索キーワード単位」の数値（Search Console）。' +
+    '空白の有無・大小文字・全角半角の違いは同じKWとみなして合算しています' +
+    '（例:「amazon 倉庫」「amazon倉庫」「Amazon倉庫」→「amazon 倉庫」に合算）。' +
+    'クリック数＝検索結果でクリックされた回数、表示回数＝検索結果に表示された回数、' +
+    'CTR＝クリック数÷表示回数、掲載順位＝表示時の平均順位（表示回数で加重。小さいほど上位）。' +
+    '検索した人が少ない語はGoogleが検索語を開示しないため、実際よりやや少なめに出ることがあります。' +
+    'KWはHiroto提供リスト（2026-08-24時点・' + (DATA.main_keywords || []).length + 'KW）の並び順。' +
+    '列見出しをクリックすると並び替えできます（合計行は先頭に固定）'));
+  const kwTblWrap = el('div', {class:'scrollTbl'});
+  kwCard.append(kwTblWrap);
+
+  function renderKwTbl(){
+    const metric = kwSel.value;
+    const kg = DATA.keyword_gsc || {};
+    const kwList = DATA.main_keywords || [];
+    const gv = (kw, m) => (kg[kw] || {})[m] || null;
+
+    const tbl = el('table', {class:'dt'});
+    const thead = el('thead', {}), tbody = el('tbody', {});
+    const hr = el('tr', {});
+    hr.append(el('th', {}, 'メインKW'));
+    VM().forEach(m => hr.append(el('th', {}, mShort(m) + (m === DATA.current_month ? '※' : ''))));
+    hr.append(el('th', {}, metric === 'position' ? '期間平均' : metric === 'ctr' ? '期間CTR' : '期間計'));
+    thead.append(hr);
+
+    // 月ごとの全KW合計（クリック・表示回数・順位加重和）
+    const mTot = VM().map(m => {
+      let c = 0, i = 0, pw = 0;
+      kwList.forEach(kw => { const v = gv(kw, m);
+        if (v){ c += v.clicks; i += v.impressions;
+                if (v.position != null) pw += v.position * v.impressions; } });
+      return {c, i, pw};
+    });
+    const fmtCell = (t) => {
+      if (metric === 'clicks') return fmtN(t.c);
+      if (metric === 'impressions') return fmtN(t.i);
+      if (metric === 'ctr') return t.i ? fmtP(t.c / t.i * 100, 2) : '-';
+      return t.i ? fmtF(t.pw / t.i, 1) : '-';
+    };
+    const trT = el('tr', {class:'total'});
+    trT.append(el('td', {class:'l'}, metric === 'position' ? '全KW 平均（表示回数加重）' : '全KW 合計'));
+    mTot.forEach(t => trT.append(el('td', {}, fmtCell(t))));
+    const allT = {c: mTot.reduce((s,t)=>s+t.c,0), i: mTot.reduce((s,t)=>s+t.i,0),
+                  pw: mTot.reduce((s,t)=>s+t.pw,0)};
+    trT.append(el('td', {}, fmtCell(allT)));
+    tbody.append(trT);
+
+    kwList.forEach(kw => {
+      const tr = el('tr', {});
+      tr.append(el('td', {class:'l'}, kw));
+      let c = 0, i = 0, pw = 0;
+      VM().forEach(m => {
+        const v = gv(kw, m);
+        if (v){ c += v.clicks; i += v.impressions;
+                if (v.position != null) pw += v.position * v.impressions; }
+        const t = v ? {c: v.clicks, i: v.impressions,
+                       pw: v.position != null ? v.position * v.impressions : 0} : {c:0, i:0, pw:0};
+        tr.append(el('td', {}, v ? fmtCell(t) : (metric === 'clicks' || metric === 'impressions' ? '0' : '-')));
+      });
+      tr.append(el('td', {}, fmtCell({c, i, pw})));
+      tbody.append(tr);
+    });
+
+    tbl.append(thead); tbl.append(tbody);
+    makeSortable(tbl);
+    kwTblWrap.replaceChildren(tbl);
+  }
+  kwSel.addEventListener('change', renderKwTbl);
+  renderKwTbl();
+  kwCard.append(el('p', {class:'note'}, '※当月は月途中の数値。データのない月はクリック・表示回数は0、CTR・順位は「-」'));
+  t3.append(kwCard);
+
   lineChart(t3, 'GSC 表示回数',
     'Google検索結果にjagoo.co.jpのページが表示された回数（クリック前の露出量。Search Console）', [
     {name:'表示回数', values: series(m => gsc(m).impressions)},

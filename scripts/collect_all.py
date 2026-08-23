@@ -30,6 +30,7 @@ import datetime as dt
 import json
 import os
 import sys
+import unicodedata
 import urllib.parse
 from pathlib import Path
 
@@ -47,6 +48,43 @@ JST = dt.timezone(dt.timedelta(hours=9))
 
 # 指名検索とみなす検索語（正規表現）。GSCのクエリに部分一致
 BRAND_REGEX = "ジャグー株式会社|ジャグー|jagoo"
+
+# SEOのメインKW（2026-08-24 Hiroto提供リスト・この並び順のまま画面に表示する）。
+# GSCの検索キーワード別に月次のクリック・表示回数・CTR・掲載順位を集計する。
+# 空白（半角・全角）の有無と大小文字・全半角の違いは同じKWとみなして合算する
+# （例: 「amazon 倉庫」「amazon倉庫」「Amazon倉庫」→ すべて「amazon 倉庫」に合算）
+MAIN_KEYWORDS = [
+    "rpp広告", "楽天 運営代行", "楽天 広告運用代行", "楽天 LP",
+    "楽天 レビュー クーポン 設定方法", "Yahoo!ショッピング prオプション",
+    "Yahoo!ショッピング seo", "クーポンアドバンス広告", "qoo10 運用代行",
+    "楽天 サンキュークーポン", "楽天 アクセス数", "amazon 商品名ルール",
+    "楽天 SEO", "楽天 コンサル", "楽天 出店", "rpp 運用代行",
+    "Yahoo!ショッピング 売上", "楽天CSV", "楽天スーパーセールサーチ", "R-SNS",
+    "楽天 CPA広告", "amazon コンサル", "qoo10 出店", "qoo10 広告",
+    "楽天 スーパーアフィリエイト", "楽天 コンテンツページ", "TikTok Shop 運営代行",
+    "楽天 バナー", "Yahoo!ショッピング 広告", "qoo10 コンサル",
+    "amazon レビュー 依頼", "QSM", "amazon 売上アップ", "楽天市場 売れる",
+    "楽天 gold", "gmv max tiktok", "tda広告", "楽天 商品 ページ", "楽天 ec",
+    "YCA広告", "amazon 倉庫", "amazon ストアページ", "amazon ベストセラー",
+    "amazon カートボックス", "商品紹介コンテンツ", "amazon ブランドストーリー",
+    "ストアクリエイターPro ログイン", "楽天 広告", "楽天 メルマガ",
+    "Yahoo!ショッピング 出店", "楽天市場 イベント", "楽天 定期購入",
+    "amazon ランキング 調べ方", "amazon 出品 方法", "39ショップ",
+    "スポンサーブランド広告", "Tiktok shop アフィリエイト",
+    "yahoo!ショッピング 優良配送", "amazon セラーセントラル", "amazon 売れない",
+    "楽天ルームとは", "tiktok shop ライブコマース", "TikTok Shop",
+    "amazon 運用代行", "qoo10 メガポ", "amazon ブランド登録", "amazon 広告運用",
+    "楽天スーパーロジスティクス", "ec コンサル", "ec 運営代行",
+    "fba 料金シミュレーター", "amazon ギフト 設定", "amazon 商品ページ",
+    "amazon 値段推移", "Amazon 広告代理店", "TikTok Shop Liveオークション",
+]
+
+
+def norm_kw(s):
+    """KWの表記ゆれをまとめるための正規化。
+    全角→半角（NFKC）・小文字化・空白（半角/全角）を全て除去"""
+    s = unicodedata.normalize("NFKC", s).lower()
+    return "".join(s.split())
 
 
 def log(msg):
@@ -603,6 +641,45 @@ def main():
             start_row += 25000
         out["article_gsc"] = article_gsc
         log("GSC 記事別日次: %d記事" % len(article_gsc))
+
+        # メインKW別: 検索キーワード単位の月次クリック・表示回数・掲載順位
+        # 月ごとに全クエリを取得し、正規化（norm_kw）が一致したものをKWに合算する。
+        # ※GSCは件数の少ない検索語を「匿名クエリ」として返さないため、実際より少なめに出ることがある
+        kw_by_norm = {}
+        for kw in MAIN_KEYWORDS:
+            kw_by_norm.setdefault(norm_kw(kw), kw)
+        keyword_gsc = {kw: {} for kw in MAIN_KEYWORDS}
+        for ym in months:
+            s = ym + "-01"
+            e = min(dt.date(int(ym[:4]) + (1 if ym[5:] == "12" else 0),
+                            1 if ym[5:] == "12" else int(ym[5:]) + 1, 1) - dt.timedelta(days=1),
+                    yesterday).isoformat()
+            if s > e:
+                continue
+            start_row = 0
+            while True:
+                rows = gsc.query({"startDate": s, "endDate": e, "dimensions": ["query"],
+                                  "rowLimit": 25000, "startRow": start_row})
+                for r in rows:
+                    kw = kw_by_norm.get(norm_kw(r["keys"][0]))
+                    if not kw:
+                        continue
+                    g = keyword_gsc[kw].setdefault(
+                        ym, {"clicks": 0, "impressions": 0, "_pos_w": 0.0})
+                    g["clicks"] += r.get("clicks", 0)
+                    g["impressions"] += r.get("impressions", 0)
+                    g["_pos_w"] += r.get("position", 0) * r.get("impressions", 0)
+                if len(rows) < 25000:
+                    break
+                start_row += 25000
+        for kw, ms in keyword_gsc.items():
+            for ym, g in ms.items():
+                w = g.pop("_pos_w")
+                g["position"] = round(w / g["impressions"], 1) if g["impressions"] else None
+        out["keyword_gsc"] = keyword_gsc
+        out["main_keywords"] = MAIN_KEYWORDS
+        log("GSC メインKW別: %d/%dKWでデータあり" % (
+            sum(1 for ms in keyword_gsc.values() if ms), len(MAIN_KEYWORDS)))
 
         out["gsc"] = gsc_monthly
     except Exception as e:
