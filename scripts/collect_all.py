@@ -649,6 +649,8 @@ def main():
         for kw in MAIN_KEYWORDS:
             kw_by_norm.setdefault(norm_kw(kw), kw)
         keyword_gsc = {kw: {} for kw in MAIN_KEYWORDS}
+        # 表記ゆれの内訳（KWごとに、実際に検索された表記別の期間合計クリック・表示回数）
+        kw_variants = {kw: {} for kw in MAIN_KEYWORDS}
         for ym in months:
             s = ym + "-01"
             e = min(dt.date(int(ym[:4]) + (1 if ym[5:] == "12" else 0),
@@ -669,6 +671,9 @@ def main():
                     g["clicks"] += r.get("clicks", 0)
                     g["impressions"] += r.get("impressions", 0)
                     g["_pos_w"] += r.get("position", 0) * r.get("impressions", 0)
+                    v = kw_variants[kw].setdefault(r["keys"][0], [0, 0])
+                    v[0] += r.get("clicks", 0)
+                    v[1] += r.get("impressions", 0)
                 if len(rows) < 25000:
                     break
                 start_row += 25000
@@ -678,6 +683,10 @@ def main():
                 g["position"] = round(w / g["impressions"], 1) if g["impressions"] else None
         out["keyword_gsc"] = keyword_gsc
         out["main_keywords"] = MAIN_KEYWORDS
+        # 内訳は表示回数の多い順に最大10表記まで保存（[クリック, 表示回数]）
+        out["keyword_variants"] = {
+            kw: sorted(vs.items(), key=lambda x: -x[1][1])[:10]
+            for kw, vs in kw_variants.items()}
         log("GSC メインKW別: %d/%dKWでデータあり" % (
             sum(1 for ms in keyword_gsc.values() if ms), len(MAIN_KEYWORDS)))
 

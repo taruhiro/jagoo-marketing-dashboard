@@ -973,6 +973,9 @@ function build(){
     'クリック数＝検索結果でクリックされた回数、表示回数＝検索結果に表示された回数、' +
     'CTR＝クリック数÷表示回数、掲載順位＝表示時の平均順位（表示回数で加重。小さいほど上位）。' +
     '検索した人が少ない語はGoogleが検索語を開示しないため、実際よりやや少なめに出ることがあります。' +
+    'KW名にマウスを当てると、期間内に実際に検索された表記の内訳（クリック・表示回数）が見られます。' +
+    'GSCの管理画面と突合する場合は、検索キーワードのフィルタを「完全一致」ではなく「カスタム（正規表現）」にして' +
+    '空白ゆれを含めて指定してください（完全一致だとその表記1つ分だけの数値になり、この表より少なく出ます）。' +
     'KWはHiroto提供リスト（2026-08-24時点・' + (DATA.main_keywords || []).length + 'KW）の並び順。' +
     '列見出しをクリックすると並び替えできます（合計行は先頭に固定）'));
   const kwTblWrap = el('div', {class:'scrollTbl'});
@@ -1016,7 +1019,15 @@ function build(){
 
     kwList.forEach(kw => {
       const tr = el('tr', {});
-      tr.append(el('td', {class:'l'}, kw));
+      const vars = (DATA.keyword_variants || {})[kw] || [];
+      const tdKw = el('td', {class:'l'}, kw);
+      if (vars.length){
+        tdKw.title = '実際に検索された表記の内訳（13ヶ月合計）\n' +
+          vars.map(v => v[0] + '： クリック' + fmtN(v[1][0]) + ' / 表示' + fmtN(v[1][1])).join('\n');
+        tdKw.style.textDecoration = 'underline dotted';
+        tdKw.style.cursor = 'help';
+      }
+      tr.append(tdKw);
       let c = 0, i = 0, pw = 0;
       VM().forEach(m => {
         const v = gv(kw, m);
