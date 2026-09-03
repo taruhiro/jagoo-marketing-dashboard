@@ -1053,6 +1053,10 @@ function build(){
     'Google検索結果にjagoo.co.jpのページが表示された回数（クリック前の露出量。Search Console）', [
     {name:'表示回数', values: series(m => gsc(m).impressions)},
   ]);
+  lineChart(t3, 'GSC クリック数',
+    'Google検索結果でjagoo.co.jpのページがクリックされた回数（Search Console・サイト全体）', [
+    {name:'クリック数', values: series(m => gsc(m).clicks)},
+  ]);
   lineChart(t3, 'GSC 平均掲載順位',
     'サイト全体の検索結果での平均順位（Search Console・表示回数で加重）。上にいくほど良い（軸を反転表示）', [
     {name:'平均順位', values: series(m => gsc(m).position)},
