@@ -90,7 +90,11 @@ def to_int(v):
 
 
 def ym_of(cell):
-    """'2026/08' や 2026/8 形式 → '2026-08'。月ヘッダ以外は None"""
+    """'2026/08' や 2026/8 形式 → '2026-08'。シートが日付型で持つ月はAPIから
+    日付シリアル値（1899-12-30起点の日数）で返るため、それも月に変換する。月ヘッダ以外は None"""
+    if isinstance(cell, (int, float)) and 30000 < cell < 80000:
+        d = dt.date(1899, 12, 30) + dt.timedelta(days=int(cell))
+        return d.strftime("%Y-%m")
     m = re.match(r"^\s*(\d{4})[/\-](\d{1,2})\s*$", str(cell))
     if not m:
         return None
