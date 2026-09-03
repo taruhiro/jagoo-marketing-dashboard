@@ -606,20 +606,14 @@ def main():
                 svc, {"top": 0, "document": 0, "thanks": 0})
             s[stage] += int(mt[0])
 
-        # TOP・サービスページの流入経路分解とCVR（2026-08-20追加。SEOシミュレーション②の管理指標）
-        # 到達＝TOPまたはサービス8ページを見たセッション（ページごとに数えるため複数ページ閲覧は重複あり。
-        #   KPIシートのCVRツリーと同じ基準）
+        # TOP・サービスページの着地セッションとCVR（2026-08-20追加。SEOシミュレーション②の管理指標）
         # 着地＝そのページがサイト到着時の最初のページだったセッション（landingPageは末尾スラッシュなしで
         #   記録されるため、スラッシュあり・なし両方をリストに入れる）
-        # 回遊到達（記事などサイト内から移動して到達した分）＝到達−着地。画面側で算出する
+        # reach（合計セッション）＝TOP直接着地＋サービスページ直接着地（2026-09-03 Hiroto指示で着地ベースに統一。
+        #   旧: ページを見たセッションの閲覧ベース合計）
         svc_paths = ["/service/%s" % k for k in SERVICES]
         entry_pages = ["/"] + svc_paths + [p + "/" for p in svc_paths]
         service_entry = {ym: {"reach": 0, "land_top": 0, "land_svc": 0, "svc_cv": 0.0} for ym in months}
-        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
-                              f_inlist("pagePath", entry_pages)):
-            ym = ym_key(d[0])
-            if ym in service_entry:
-                service_entry[ym]["reach"] += int(mt[0])
         for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "landingPage"], ["sessions"],
                               f_inlist("landingPage", entry_pages)):
             ym = ym_key(d[0])
@@ -627,6 +621,7 @@ def main():
                 continue
             key = "land_top" if to_path(d[1]) == "/" else "land_svc"
             service_entry[ym][key] += int(mt[0])
+            service_entry[ym]["reach"] += int(mt[0])
         # サービスページCV＝GA4キーイベントのうち、各サービスの資料DL/問い合わせCV＋Eコマース総合資料CV。
         # CVR計測シート（GA4キーイベント数実績）と同じ定義。シートと突合できるよう国フィルタなしで集計する
         svc_cv_heads = ("Amazon支援", "Yahoo支援", "Qoo10支援", "TikTokShop支援", "楽天市場支援",
