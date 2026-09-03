@@ -36,6 +36,8 @@ from pathlib import Path
 
 import requests
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data"
 OUT_PATH = DATA_DIR / "dashboard.json"
@@ -905,15 +907,28 @@ def main():
     # クライアント数値のためリポジトリには置かない。GitHub Actionsでは Secret HUBSPOT_LEADS_JSON、
     # ローカルでは data/hubspot_leads.json（.gitignore済み）から読む。
     # （HubSpotのAPIトークンが未設定のため自動取得できない。トークン設定後は collect_hubspot 側での自動化に置き換える）
+    # 優先順位: (1) KPI設定シート「CV・受注集計」タブからの自動取得（Google Sheets用認証情報がある場合）
+    #           (2) Secret HUBSPOT_LEADS_JSON  (3) data/hubspot_leads.json  ※(2)(3)は手動更新のため古くなりうる
     hs_env = os.environ.get("HUBSPOT_LEADS_JSON")
     hs_path = DATA_DIR / "hubspot_leads.json"
-    if hs_env:
+    out["hubspot_leads"] = {}
+    try:
+        import fetch_hubspot_leads
+        auto = fetch_hubspot_leads.fetch()
+    except Exception as e:
+        auto = None
+        errors.append("HubSpotリード数（シート自動取得）: %s" % e)
+        log("HubSpotリード数 シート自動取得エラー: %s" % e)
+    if auto:
+        out["hubspot_leads"] = auto
+        log("HubSpotリード数: KPI設定シートから自動取得（%d ヶ月分）" % len(auto.get("monthly", {})))
+    elif hs_env:
         out["hubspot_leads"] = json.loads(hs_env)
+        log("HubSpotリード数: Secret HUBSPOT_LEADS_JSON（手動更新値）を使用")
     elif hs_path.exists():
         with open(hs_path, encoding="utf-8") as f:
             out["hubspot_leads"] = json.load(f)
-    else:
-        out["hubspot_leads"] = {}
+        log("HubSpotリード数: data/hubspot_leads.json（手動更新値）を使用")
 
     out["errors"] = errors
 
