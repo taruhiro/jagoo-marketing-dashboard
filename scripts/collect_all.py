@@ -343,9 +343,14 @@ class GA4:
         return out
 
 
-# SEO記事＝到着時の最初のページが/column/配下のセッション。
-# 流入経路（チャネル）では絞らない（2026-08-08 Hiroto指示でOrganic Search限定を撤廃）
-COLUMN_ARTICLES = f_contains("landingPage", "/column/")
+# SEO記事セッション＝KPI設定シート「新規セッション数」と同じ定義（2026-09-03 Hiroto指示で統一）:
+#   /column/ を含むページを閲覧したセッション × セッションのデフォルトチャネル＝Organic Search × 国フィルタなし。
+#   （旧: 着地ページ=/column/ × 全チャネル × 国=日本。KPIシートと数千件ずれていた）
+KPI_SEO_SESSIONS = f_and(f_contains("pagePath", "/column/"),
+                         f_exact("sessionDefaultChannelGroup", "Organic Search"))
+# SEO記事CV＝記事に着地したオーガニック検索セッション中に発生したキーイベント（CVはページ単位で数えられないため着地ベース）
+COLUMN_ARTICLES = f_and(f_contains("landingPage", "/column/"),
+                        f_exact("sessionDefaultChannelGroup", "Organic Search"))
 
 
 def ym_key(yearmonth):
@@ -555,8 +560,10 @@ def main():
             channels.setdefault(ym_key(d[0]), {})[d[1]] = {"sessions": int(mt[0]), "cv": mt[1]}
 
         seo = {}
-        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions", CV], COLUMN_ARTICLES):
-            seo[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": mt[1]}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], ["sessions"], KPI_SEO_SESSIONS, japan=False):
+            seo[ym_key(d[0])] = {"sessions": int(mt[0]), "cv": 0.0}
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth"], [CV], COLUMN_ARTICLES, japan=False):
+            seo.setdefault(ym_key(d[0]), {"sessions": 0, "cv": 0.0})["cv"] = mt[0]
 
         # 遷移率ファネル
         col_pv = {ym_key(d[0]): int(mt[0]) for d, mt in ga4.rows(
@@ -633,10 +640,11 @@ def main():
                 service_entry[ym]["svc_cv"] += mt[0]
         out["service_entry"] = service_entry
 
-        # SEO記事別: 月次セッション（流入ページ=/column/×オーガニック）
+        # SEO記事別: 月次セッション（その記事を閲覧したオーガニック検索セッション・国フィルタなし。KPIシート定義）
+        # 複数記事を見たセッションは記事ごとに数えるため、記事の合計は seo[ym]["sessions"]（重複なし）より大きい
         articles = {}
-        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "landingPage"], ["sessions"],
-                              COLUMN_ARTICLES):
+        for d, mt in ga4.rows(range_start, range_end, ["yearMonth", "pagePath"], ["sessions"],
+                              KPI_SEO_SESSIONS, japan=False):
             path = to_path(d[1])
             ym = ym_key(d[0])
             a = articles.setdefault(path, {})

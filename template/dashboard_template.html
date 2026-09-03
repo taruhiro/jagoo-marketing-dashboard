@@ -439,7 +439,7 @@ function build(){
   // 注記に使う共通の定義文
   const CVE = (ga.cv_events || []).length ? (ga.cv_events || []).join('、') : 'キーイベント';
   const CV_DEF = 'CV＝GA4のキーイベント合計（対象イベント: ' + CVE + '）';
-  const SEO_DEF = 'SEO記事＝サイト到着時の最初のページが記事（/column/配下）のセッション（流入経路は問わずすべて含む）';
+  const SEO_DEF = 'SEO記事セッション＝記事（/column/配下）を閲覧したオーガニック検索のセッション（KPI設定シート「新規セッション数」と同じ定義。国フィルタなし）';
   const SITE_DEF = 'サイト全体＝jagoo.co.jpの全ページ';
   const JP_DEF = 'GA4の数値はすべて国=日本のみで集計（海外ボット除外）';
 
@@ -481,7 +481,7 @@ function build(){
     {name:'SEO記事', values: series(m => seo(m).sessions)},
   ]);
   lineChart(t1, 'CV推移',
-    CV_DEF + '。サイト全体＝全ページで発生したCVの合計。SEO記事経由＝到着時の最初のページが記事（/column/配下）だったセッション中に発生したCV（流入経路は問わない）。' + JP_DEF, [
+    CV_DEF + '。サイト全体＝全ページで発生したCVの合計（国=日本のみ）。SEO記事経由＝記事（/column/配下）に着地したオーガニック検索セッション中に発生したCV（国フィルタなし）', [
     {name:'サイト全体', values: series(m => site(m).cv)},
     {name:'SEO記事経由', values: series(m => seo(m).cv)},
   ]);
@@ -648,7 +648,6 @@ function build(){
     const seReach = m => { const v = se(m); return v ? v.reach : null; };
     const seLandT = m => { const v = se(m); return v ? v.land_top : null; };
     const seLandS = m => { const v = se(m); return v ? v.land_svc : null; };
-    const seKaiyu = m => { const v = se(m); return v ? Math.max(v.reach - v.land_top - v.land_svc, 0) : null; };
     const seCv = m => { const v = se(m); return v ? v.svc_cv : null; };
     const seCvr = m => { const v = se(m); return (v && v.reach) ? v.svc_cv / v.reach * 100 : null; };
     const hsM = m => (((DATA.hubspot_leads || {}).monthly) || {})[m] || null;
@@ -667,33 +666,23 @@ function build(){
       : 'HubSpot値は未登録';
     const t25 = addTab('TOP・サービス流入');
     t25.append(el('div', {class:'msg'},
-      'TOP＋サービス8ページのセッションを「どこから来たか」で3経路に分け、サービスページCV（HubSpotのリード数）と平均CVRを月次で見るタブです（SEOシミュレーション②の管理指標）。' +
-      '回遊到達＝記事などサイト内の他ページから移動して到達した分（到達−着地で算出）。' +
+      'TOP＋サービス8ページのセッションと、その着地経路、サービスページCV（HubSpotのリード数）と平均CVRを月次で見るタブです（SEOシミュレーション②の管理指標）。' +
       'サービスページ直接着地＝検索などからサービスページに直接入った分。TOP直接着地＝指名検索やブックマーク等でTOPに直接入った分。' +
       'CV数はHubSpotのリード数を正とし、GA4キーイベントは参考として並記。' + hsNote + '。'));
     const tl25 = el('div', {class:'tiles'});
     tl25.append(tile('TOP・サービス 合計セッション', seReach));
     tl25.append(tile('サービスページCV（HubSpot）', hsSvc));
     tl25.append(tile('平均CVR（HubSpot）', hsCvr, {fmt:v=>fmtP(v,2), pt:true}));
-    tl25.append(tile('記事等からの回遊到達', seKaiyu));
     t25.append(tl25);
     t25.append(el('p', {class:'note', style:'margin:-8px 0 14px'},
       '合計セッション＝TOP（/）とサービス8ページ（/service/◯◯/）を見たセッションの合計（複数ページを見た訪問はページごとに数えるため重複あり・KPIシートのCVRツリーと同じ基準）。' +
       'サービスページCV（HubSpot）＝各サービスページの資料DL＋問い合わせ＋ご相談のリード数（KPI設定シート「CV・受注集計」タブの「HP -」行の合計）。' +
       'WPダウンロード（HubSpot）＝「お役立ち資料」行（ホワイトペーパーDL）＋「.wpcf7-form」行（記事内フォーム経由・フォーム名未設定のCV）の合計。内訳は表の2行を参照。' +
       '平均CVR＝サービスページCV（HubSpot）÷合計セッション。' +
-      '記事からの回遊率＝(a)回遊到達÷SEO記事セッション（記事＝サイト到着時の最初のページが/column/配下のセッション・流入経路不問）。' +
-      '回遊到達には記事以外（TOPやサービスページ間の移動など）から来た分も含むため、率はやや高めに出る近似値。セッションは国=日本のみ'));
+      'セッションは国=日本のみ'));
     const seCard = el('div', {class:'card'});
     seCard.append(el('h3', {}, '流入経路別セッションとCVR（月次）'));
     seCard.append(metricTable([
-      {label:'(a) 記事等からの回遊到達', val:seKaiyu,
-       total:()=>VM().reduce((s,m)=>s+(seKaiyu(m)||0),0)},
-      {label:'記事からの回遊率（(a)÷記事セッション）', rate:true,
-       val:m=>{const k=seKaiyu(m), a=(seo(m)||{}).sessions; return (k!=null && a) ? k/a*100 : null;},
-       total:()=>{const k=VM().reduce((s,m)=>s+(seKaiyu(m)||0),0);
-                  const a=VM().reduce((s,m)=>s+((seo(m)||{}).sessions||0),0);
-                  return a ? k/a*100 : null;}},
       {label:'(b) サービスページ直接着地', val:seLandS,
        total:()=>VM().reduce((s,m)=>s+(seLandS(m)||0),0)},
       {label:'(c) TOP直接着地（指名等）', val:seLandT,
@@ -722,10 +711,8 @@ function build(){
       '平均CVRの期間計はHubSpot値がある月だけで算出。（参考）GA4キーイベント＝各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV（毎朝自動更新・HubSpotと一致しない月がある）'));
     t25.append(seCard);
     lineChart(t25, '流入経路別セッションの推移',
-      '(a) 回遊到達＝到達−着地（記事内バナー・導線などサイト内から移動して来た分）。' +
       '(b) サービスページ直接着地＝/service/◯◯/がサイト到着時の最初のページだったセッション。' +
       '(c) TOP直接着地＝TOP（/）がサイト到着時の最初のページだったセッション。国=日本のみ', [
-      {name:'(a) 記事等からの回遊', values: series(seKaiyu)},
       {name:'(b) サービス直接着地', values: series(seLandS)},
       {name:'(c) TOP直接着地', values: series(seLandT)},
     ]);
@@ -768,12 +755,13 @@ function build(){
   artHead.append(artSel);
   artCard.append(artHead);
   artCard.append(el('p', {class:'note'},
-    'セッション数＝その記事がサイト到着時の最初のページだったセッション数（流入経路は問わない。GA4・国=日本のみ）。' +
+    'セッション数＝その記事を閲覧したオーガニック検索のセッション数（GA4・国フィルタなし。KPI設定シート「新規セッション数」と同じ条件）。' +
+    '複数の記事を見た訪問は記事ごとに数えるため、各記事の足し算は「全記事 合計」（重複なしのセッション数＝KPIシートの値）より大きくなります。' +
     'GSC表示回数＝Google検索結果にその記事が表示された回数、GSCクリック数＝クリックされた回数（Search Console）。' +
     'GSC表示回数・クリック数は右のプルダウンで月別／週別（月曜〜日曜）／日別（選択期間の直近31日）を切り替えられます。' +
     '平均掲載順位＝検索結果に表示されたときの平均順位（表示回数で加重した月平均。小さいほど上位）。' +
     '記事→資料DL遷移率＝その記事から資料ページ（/document/）へ移動したPV÷その記事の全PV（近似値・低めに出る）。' +
-    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）。先頭の「全記事 合計」行はサイト内の全記事の合計値。' +
+    '注力KWはHiroto提供リスト（2026-08-08時点・165記事）。先頭の「全記事 合計」行はセッション数では重複なしの全記事セッション数（KPIシート定義）、他の指標では全記事の合計値。' +
     '列見出しをクリックすると昇順・降順で並び替えできます（合計行は先頭に固定）'));
   const artTblWrap = el('div', {class:'scrollTbl'});
   artCard.append(artTblWrap);
@@ -914,6 +902,11 @@ function build(){
       fs.forEach(([pv, td]) => trT.append(el('td', {}, pv ? fmtP(td / pv * 100, 2) : '-')));
       const pvA = fs.reduce((s, x) => s + x[0], 0), tdA = fs.reduce((s, x) => s + x[1], 0);
       trT.append(el('td', {}, pvA ? fmtP(tdA / pvA * 100, 2) : '-'));
+    } else if (metric === 'sessions'){
+      // 重複なしのSEO記事セッション数（KPIシート「新規セッション数」と同じ値）
+      const totals = VM().map(m => seo(m).sessions || 0);
+      totals.forEach(v => trT.append(el('td', {}, fmtN(v))));
+      trT.append(el('td', {}, fmtN(totals.reduce((s, v) => s + v, 0))));
     } else {
       const totals = new Array(periods.length).fill(0);
       paths.forEach(p => rowVals.get(p).forEach((v, i) => { totals[i] += v || 0; }));
@@ -1099,13 +1092,13 @@ function build(){
   <h3>指標の定義</h3>
   <ul>
     <li>セッション・CV・新規ユーザー: GA4。海外ボット除外のため国=日本のみで集計。CVはGA4のキーイベント合計（対象イベント: ${CVE}）</li>
-    <li>SEO記事: サイト到着時の最初のページが /column/ 配下のセッション（流入経路は問わずすべて含む）</li>
+    <li>SEO記事セッション: /column/ 配下の記事を閲覧したオーガニック検索のセッション。KPI設定シート「新規セッション数」と同じ条件に合わせ、国フィルタはかけない（2026-09-03変更）。SEO記事CVは記事に着地したオーガニック検索セッション中のキーイベント</li>
     <li>記事→資料DLページ遷移率: /column/から/document/へ移動したページビュー ÷ /column/のページビュー（移動元が取れない閲覧があるため低めに出る近似値）</li>
     <li>資料DL完了: お役立ち資料のサンクスページ（URLに complete/ を含む）に到達したセッション数。資料DL完了率 = DL完了セッション ÷ /document/閲覧セッション</li>
     <li>サービス別ファネル: /service/◯◯/（ページ閲覧）→ /service/◯◯/document/（資料DLページ）→ /service/◯◯/document/thanks/（DL完了）の各セッション数。対象は楽天・Amazon・Yahoo!・Qoo10・TikTok Shop・ECサイト構築・LP制作・広告運用の8サービス</li>
     <li>モールジャンル: URLに rakuten / amazon / yahoo / qoo10 / tiktok を含むかで判別し、どれにも当てはまらないページは「その他」。記事は記事URL、資料DLページ・DL完了ページはそのページ自身のURLで判別</li>
     <li>記事→資料DL遷移率（記事別・ジャンル別）: その記事から/document/へ移動したページビュー ÷ その記事のページビュー。移動元が取れない閲覧があるため低めに出る近似値</li>
-    <li>TOP・サービス流入タブ: TOP（/）とサービス8ページを見たセッション（到達）を、(a)回遊到達＝到達−着地（記事などサイト内から移動して来た分）、(b)サービスページ直接着地、(c)TOP直接着地、の3経路に分解。複数ページを見た訪問はページごとに数えるため合計に重複があり、KPIシートのCVRツリーと同じ基準。CV数はHubSpotのリード数が正（サービスページCV＝資料DL＋問い合わせ＋ご相談、WPダウンロード＝ホワイトペーパーDL＋記事内フォームCV。出典はKPI設定シート「CV・受注集計」タブ）。平均CVR＝サービスページCV（HubSpot）÷合計セッション。GA4キーイベント（各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV・国フィルタなし）は毎朝自動更新の参考値として並記</li>
+    <li>TOP・サービス流入タブ: 合計セッション（到達）＝TOP（/）とサービス8ページを見たセッション（閲覧ベース。複数ページを見た訪問はページごとに数えるため重複があり、KPIシートのCVRツリーと同じ基準）。(b)サービスページ直接着地・(c)TOP直接着地＝そのページがサイト到着時の最初のページだったセッション（着地ベース）。CV数はHubSpotのリード数が正（サービスページCV＝資料DL＋問い合わせ＋ご相談、WPダウンロード＝ホワイトペーパーDL＋記事内フォームCV。出典はKPI設定シート「CV・受注集計」タブ）。平均CVR＝サービスページCV（HubSpot）÷合計セッション。GA4キーイベント（各サービスの資料DL・問い合わせCV＋Eコマース総合資料CV・国フィルタなし）は毎朝自動更新の参考値として並記</li>
     <li>指名検索: Search Console で検索語に「ジャグー株式会社」「ジャグー」「jagoo」のいずれかを含むクリック数</li>
     <li>Ahrefs: 月末時点のスナップショット。KW総数=検索結果に載っているキーワード数、DR=被リンク評価（0〜100）</li>
   </ul>
